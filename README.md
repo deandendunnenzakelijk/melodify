@@ -56,7 +56,7 @@ Een volledige Spotify-clone webapplicatie met moderne functionaliteit en design,
 - `profiles` - Gebruikersprofielen met premium status
 - `artists` - Artiest informatie
 - `albums` - Album details
-- `tracks` - Muziek tracks met audio URLs
+  - `tracks` - Muziek tracks met audio URLs
 - `playlists` - Gebruiker playlists
 - `playlist_tracks` - Playlist-track relaties
 - `liked_tracks` - Gelikede nummers per gebruiker
