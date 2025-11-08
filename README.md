@@ -86,6 +86,47 @@ Een volledige Spotify-clone webapplicatie met moderne functionaliteit en design,
 
    De `.env` file is al geconfigureerd met Supabase credentials. De database schema is al aangemaakt.
 
+   Voor de artiestmodus en Cloudflare R2 uploads heb je daarnaast het volgende nodig:
+
+   - `VITE_R2_SIGNING_URL`: HTTPS-endpoint van je Cloudflare Worker of andere backend die gesigneerde `PUT`-URL's naar R2 afgeeft.
+   - `VITE_R2_PUBLIC_BASE_URL`: (optioneel) Publieke basis-URL van je bucket, bv. `https://pub-<bucket>.r2.dev`, gebruikt als fallback wanneer het signing-endpoint geen publieke URL terugstuurt.
+
+   > ⚠️ **Geheimen opslaan**: Deel Cloudflare API-tokens, access keys of secrets nooit in de repository. Bewaar ze als environment variabelen of in een secrets manager.
+
+   Een minimale Worker om upload-URL's te verstrekken ziet er zo uit:
+
+   ```ts
+   export default {
+     async fetch(request, env) {
+       if (request.method !== 'POST') {
+         return new Response('Method not allowed', { status: 405 });
+       }
+
+       const { fileName, contentType, folder, objectKey, metadata } = await request.json();
+       const safeName = fileName || 'upload';
+       const key = objectKey ?? `${folder ? `${folder}/` : ''}${Date.now()}-${safeName}`;
+
+       const signed = await env.MY_BUCKET.createPresignedUrl({
+         method: 'PUT',
+         key,
+         expiration: 60,
+         headers: {
+           'content-type': contentType ?? 'application/octet-stream',
+         },
+         customMetadata: metadata ?? {},
+       });
+
+       return Response.json({
+         uploadUrl: signed.url,
+         key,
+         publicUrl: `${env.PUBLIC_BASE_URL}/${key}`,
+       });
+     },
+   } satisfies ExportedHandler<{ MY_BUCKET: R2Bucket; PUBLIC_BASE_URL: string }>;
+   ```
+
+   Bind de R2 bucket (`MY_BUCKET`) en een `PUBLIC_BASE_URL` secret in `wrangler.toml` en beveilig het endpoint met bijvoorbeeld een API-key voordat je het in `VITE_R2_SIGNING_URL` configureert.
+
 4. **Start de development server**
    ```bash
    npm run dev
