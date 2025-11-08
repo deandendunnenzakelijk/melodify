@@ -10,6 +10,8 @@ interface Profile {
   avatar_url: string;
   is_premium: boolean;
   is_admin: boolean;
+  is_artist: boolean;
+  artist_id: string | null;
 }
 
 interface AuthContextType {
@@ -92,6 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatar_url: '',
         is_premium: false,
         is_admin: false,
+        is_artist: false,
+        artist_id: null,
       });
 
       if (profileError) throw profileError;
