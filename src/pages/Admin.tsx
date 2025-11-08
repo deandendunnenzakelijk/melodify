@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Upload } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,6 +9,7 @@ interface Artist {
   bio: string;
   avatar_url: string;
   verified: boolean;
+  profile_id?: string | null;
 }
 
 interface Track {

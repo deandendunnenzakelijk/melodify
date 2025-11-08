@@ -18,6 +18,8 @@ export interface Database {
           avatar_url: string
           is_premium: boolean
           is_admin: boolean
+          is_artist: boolean
+          artist_id: string | null
           created_at: string
           updated_at: string
         }
@@ -29,6 +31,8 @@ export interface Database {
           avatar_url?: string
           is_premium?: boolean
           is_admin?: boolean
+          is_artist?: boolean
+          artist_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -40,6 +44,8 @@ export interface Database {
           avatar_url?: string
           is_premium?: boolean
           is_admin?: boolean
+          is_artist?: boolean
+          artist_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -52,6 +58,7 @@ export interface Database {
           avatar_url: string
           verified: boolean
           monthly_listeners: number
+          profile_id: string | null
           created_at: string
         }
         Insert: {
@@ -61,6 +68,7 @@ export interface Database {
           avatar_url?: string
           verified?: boolean
           monthly_listeners?: number
+          profile_id?: string | null
           created_at?: string
         }
         Update: {
@@ -70,6 +78,7 @@ export interface Database {
           avatar_url?: string
           verified?: boolean
           monthly_listeners?: number
+          profile_id?: string | null
           created_at?: string
         }
       }
