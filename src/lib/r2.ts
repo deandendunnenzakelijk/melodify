@@ -46,6 +46,9 @@ export async function requestR2UploadUrl(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(import.meta.env.VITE_R2_SIGNING_API_KEY
+        ? { 'x-api-key': import.meta.env.VITE_R2_SIGNING_API_KEY as string }
+        : {}),
     },
     body: JSON.stringify(payload),
   });
