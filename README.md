@@ -86,14 +86,15 @@ Een volledige Spotify-clone webapplicatie met moderne functionaliteit en design,
 
    De `.env` file is al geconfigureerd met Supabase credentials. De database schema is al aangemaakt.
 
-   Voor de artiestmodus en Cloudflare R2 uploads heb je daarnaast het volgende nodig:
+  Voor de artiestmodus en Cloudflare R2 uploads heb je daarnaast het volgende nodig:
 
-   - `VITE_R2_SIGNING_URL`: HTTPS-endpoint van je Cloudflare Worker of andere backend die gesigneerde `PUT`-URL's naar R2 afgeeft.
-   - `VITE_R2_PUBLIC_BASE_URL`: (optioneel) Publieke basis-URL van je bucket, bv. `https://pub-<bucket>.r2.dev`, gebruikt als fallback wanneer het signing-endpoint geen publieke URL terugstuurt.
+  - `VITE_R2_SIGNING_URL`: HTTPS-endpoint van je Cloudflare Worker of andere backend die gesigneerde `PUT`-URL's naar R2 afgeeft.
+  - `VITE_R2_SIGNING_API_KEY`: (optioneel) API-key die als `x-api-key`-header naar je worker wordt gestuurd.
+  - `VITE_R2_PUBLIC_BASE_URL`: (optioneel) Publieke basis-URL van je bucket, bv. `https://pub-<bucket>.r2.dev`, gebruikt als fallback wanneer het signing-endpoint geen publieke URL terugstuurt.
 
    > ⚠️ **Geheimen opslaan**: Deel Cloudflare API-tokens, access keys of secrets nooit in de repository. Bewaar ze als environment variabelen of in een secrets manager.
 
-   Een minimale Worker om upload-URL's te verstrekken ziet er zo uit:
+  Een minimale Worker om upload-URL's te verstrekken ziet er zo uit:
 
    ```ts
    export default {
@@ -125,7 +126,46 @@ Een volledige Spotify-clone webapplicatie met moderne functionaliteit en design,
    } satisfies ExportedHandler<{ MY_BUCKET: R2Bucket; PUBLIC_BASE_URL: string }>;
    ```
 
-   Bind de R2 bucket (`MY_BUCKET`) en een `PUBLIC_BASE_URL` secret in `wrangler.toml` en beveilig het endpoint met bijvoorbeeld een API-key voordat je het in `VITE_R2_SIGNING_URL` configureert.
+  Bind de R2 bucket (`MY_BUCKET`) en een `PUBLIC_BASE_URL` secret in `wrangler.toml` en beveilig het endpoint met bijvoorbeeld een API-key voordat je het in `VITE_R2_SIGNING_URL` configureert.
+
+  #### Worker testen
+
+  1. **Vraag handmatig een gesigneerde URL op**
+
+     ```bash
+     curl -X POST https://<jouw-worker>.workers.dev \
+       -H "content-type: application/json" \
+       -H "x-api-key: <jouw-api-key>" \
+       -d '{
+         "fileName": "demo.mp3",
+         "contentType": "audio/mpeg",
+         "folder": "artists/test/tracks"
+       }'
+     ```
+
+     De response hoort `uploadUrl`, `key` en `publicUrl` te bevatten. Krijg je `401`, controleer dan de API-key.
+
+  2. **Upload een bestand naar de gesigneerde URL**
+
+     ```bash
+     curl -X PUT "<uploadUrl uit stap 1>" \
+       -H "content-type: audio/mpeg" \
+       --data-binary @pad/naar/bestand.mp3
+     ```
+
+     Bij succes verschijnt het object onder de teruggegeven `key` in je R2-bucket.
+
+  3. **Koppel de frontend**
+
+     Voeg de volgende regels toe aan je `.env` of `.env.local`:
+
+     ```bash
+     VITE_R2_SIGNING_URL=https://<jouw-worker>.workers.dev
+     VITE_R2_SIGNING_API_KEY=<jouw-api-key>
+     VITE_R2_PUBLIC_BASE_URL=https://pub-<bucket>.r2.dev
+     ```
+
+     Herstart `npm run dev`. De frontend stuurt nu automatisch de `x-api-key` mee en gebruikt de worker om upload-URL's op te vragen.
 
 4. **Start de development server**
    ```bash
