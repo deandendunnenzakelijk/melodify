@@ -3,6 +3,7 @@ import { Music2, Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
+import type { TrackWithArtist } from '../types/tracks';
 
 interface Playlist {
   id: string;
@@ -11,19 +12,6 @@ interface Playlist {
   cover_url: string;
   created_at: string;
   track_count?: number;
-}
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  artist?: {
-    name: string;
-  };
 }
 
 export default function Library() {
@@ -37,7 +25,7 @@ export default function Library() {
   }
 
   interface PlaylistTrackRow {
-    track: Track;
+    track: TrackWithArtist;
   }
 
   const loadLibrary = useCallback(async () => {

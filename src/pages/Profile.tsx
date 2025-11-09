@@ -3,27 +3,11 @@ import { User, Edit2, Upload, Sparkles, Music2, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { uploadFileToR2 } from '../lib/r2';
+import type { Tables, TablesInsert, TablesUpdate } from '../lib/database.types';
+import type { TrackWithArtist } from '../types/tracks';
 
-interface ArtistProfile {
-  id: string;
-  name: string;
-  bio: string;
-  avatar_url: string;
-  verified: boolean;
-  profile_id: string | null;
-  created_at: string;
-}
-
-interface ArtistTrack {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  created_at: string;
-}
+type ArtistProfile = Tables<'artists'>;
+type ArtistTrack = TrackWithArtist;
 
 const getAudioDuration = (file: File): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -126,14 +110,25 @@ export default function Profile() {
 
     try {
       const targetArtistId = options.artistId ?? profile?.artist_id ?? null;
+      let artistData: ArtistProfile | null = null;
 
-      const artistQuery = targetArtistId
-        ? supabase.from('artists').select('*').eq('id', targetArtistId)
-        : supabase.from('artists').select('*').eq('profile_id', activeProfileId);
-
-      const { data: artistData, error: artistError } = await artistQuery.maybeSingle();
-
-      if (artistError) throw artistError;
+      if (targetArtistId) {
+        const { data, error } = await supabase
+          .from('artists')
+          .select('*')
+          .eq('id', targetArtistId)
+          .maybeSingle();
+        if (error) throw error;
+        artistData = (data as ArtistProfile | null) ?? null;
+      } else {
+        const { data, error } = await supabase
+          .from('artists')
+          .select('*')
+          .eq('profile_id', activeProfileId)
+          .maybeSingle();
+        if (error) throw error;
+        artistData = (data as ArtistProfile | null) ?? null;
+      }
 
       setArtistProfile(artistData);
 
@@ -144,7 +139,7 @@ export default function Profile() {
           (!profile.artist_id || !profile.is_artist) &&
           !options.artistId
         ) {
-          const updates: { artist_id?: string; is_artist?: boolean } = {};
+          const updates: TablesUpdate<'profiles'> = {};
           if (!profile.artist_id) {
             updates.artist_id = artistData.id;
           }
@@ -152,10 +147,14 @@ export default function Profile() {
             updates.is_artist = true;
           }
           if (Object.keys(updates).length > 0) {
-            await supabase.from('profiles').update(updates).eq('id', profile.id);
+            await supabase
+              .from('profiles')
+              .update(updates as never)
+              .eq('id', profile.id);
           }
           await refreshProfile();
         }
+
         const { data: trackData, error: trackError } = await supabase
           .from('tracks')
           .select('*')
@@ -163,7 +162,7 @@ export default function Profile() {
           .order('created_at', { ascending: false });
 
         if (trackError) throw trackError;
-        setArtistTracks(trackData || []);
+        setArtistTracks((trackData as TrackWithArtist[]) || []);
       } else {
         setArtistTracks([]);
       }
@@ -274,13 +273,15 @@ export default function Profile() {
         const artistId = profile.artist_id || artistProfile?.id;
         if (!artistId) throw new Error('Geen artiestprofiel gevonden.');
 
+        const artistUpdates: TablesUpdate<'artists'> = {
+          name: artistName,
+          bio: artistBio,
+          avatar_url: artistAvatar,
+        };
+
         const { error } = await supabase
           .from('artists')
-          .update({
-            name: artistName,
-            bio: artistBio,
-            avatar_url: artistAvatar,
-          })
+          .update(artistUpdates as never)
           .eq('id', artistId)
           .eq('profile_id', profile.id);
 
@@ -288,33 +289,39 @@ export default function Profile() {
         setArtistSuccess('Artistprofiel bijgewerkt.');
         resolvedArtistId = artistId;
       } else {
+        const artistInsert: TablesInsert<'artists'> = {
+          name: artistName,
+          bio: artistBio,
+          avatar_url: artistAvatar,
+          profile_id: profile.id,
+          verified: false,
+        };
+
         const { data, error } = await supabase
           .from('artists')
-          .insert({
-            name: artistName,
-            bio: artistBio,
-            avatar_url: artistAvatar,
-            profile_id: profile.id,
-            verified: false,
-          })
+          .insert(artistInsert as never)
           .select()
           .maybeSingle();
 
         if (error) throw error;
         if (!data) throw new Error('Kon artiestprofiel niet opslaan.');
 
-        setArtistProfile(data);
+        const insertedArtist = data as ArtistProfile;
+        setArtistProfile(insertedArtist);
+
+        const profileUpdates: TablesUpdate<'profiles'> = {
+          is_artist: true,
+          artist_id: insertedArtist.id,
+        };
+
         const { error: profileError } = await supabase
           .from('profiles')
-          .update({
-            is_artist: true,
-            artist_id: data.id,
-          })
+          .update(profileUpdates as never)
           .eq('id', profile.id);
 
         if (profileError) throw profileError;
         setArtistSuccess('Artiestmodus is geactiveerd!');
-        resolvedArtistId = data.id;
+        resolvedArtistId = insertedArtist.id;
         shouldSkipArtistCheck = true;
         await refreshProfile();
       }
@@ -345,9 +352,14 @@ export default function Profile() {
     setArtistSuccess(null);
 
     try {
+      const profileUpdates: TablesUpdate<'profiles'> = {
+        is_artist: false,
+        artist_id: null,
+      };
+
       const { error } = await supabase
         .from('profiles')
-        .update({ is_artist: false, artist_id: null })
+        .update(profileUpdates as never)
         .eq('id', profile.id);
 
       if (error) throw error;
@@ -395,23 +407,26 @@ export default function Profile() {
         coverUrl = coverUpload.publicUrl;
       }
 
+      const trackInsert: TablesInsert<'tracks'> = {
+        title: trackTitle,
+        artist_id: activeArtistId,
+        duration: duration || 0,
+        audio_url: audioUpload.publicUrl,
+        cover_url: coverUrl,
+        explicit: trackExplicit,
+      };
+
       const { data, error } = await supabase
         .from('tracks')
-        .insert({
-          title: trackTitle,
-          artist_id: activeArtistId,
-          duration: duration || 0,
-          audio_url: audioUpload.publicUrl,
-          cover_url: coverUrl,
-          explicit: trackExplicit,
-        })
+        .insert(trackInsert as never)
         .select()
         .maybeSingle();
 
       if (error) throw error;
 
       if (data) {
-        setArtistTracks((prev) => [data, ...prev]);
+        const newTrack = data as TrackWithArtist;
+        setArtistTracks((prev) => [newTrack, ...prev]);
       }
 
       setTrackSuccess('Je track is geüpload!');
@@ -430,13 +445,15 @@ export default function Profile() {
     setProfileError(null);
     setProfileMessage(null);
 
+    const profileUpdates: TablesUpdate<'profiles'> = {
+      display_name: displayName,
+      bio,
+      avatar_url: avatarUrl,
+    };
+
     const { error } = await supabase
       .from('profiles')
-      .update({
-        display_name: displayName,
-        bio: bio,
-        avatar_url: avatarUrl,
-      })
+      .update(profileUpdates as never)
       .eq('id', profile!.id);
 
     if (!error) {

@@ -4,28 +4,16 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
 import { formatTime } from '../lib/utils';
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  artist?: {
-    name: string;
-  };
-}
+import type { TrackWithArtist } from '../types/tracks';
 
 export default function LikedSongs() {
   const { profile } = useAuth();
   const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
-  const [likedTracks, setLikedTracks] = useState<Track[]>([]);
+  const [likedTracks, setLikedTracks] = useState<TrackWithArtist[]>([]);
   const [loading, setLoading] = useState(true);
 
   interface LikedTrackRow {
-    track: Track;
+    track: TrackWithArtist;
   }
 
   const loadLikedSongs = useCallback(async () => {

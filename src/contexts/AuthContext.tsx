@@ -1,18 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import type { Tables, TablesInsert } from '../lib/database.types';
 
-interface Profile {
-  id: string;
-  username: string;
-  display_name: string;
-  bio: string;
-  avatar_url: string;
-  is_premium: boolean;
-  is_admin: boolean;
-  is_artist: boolean;
-  artist_id: string | null;
-}
+type Profile = Tables<'profiles'>;
 
 interface AuthContextType {
   user: User | null;
@@ -31,7 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -86,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
 
     if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
+      const profileInsert: TablesInsert<'profiles'> = {
         id: data.user.id,
         username,
         display_name: displayName,
@@ -96,7 +87,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         is_admin: false,
         is_artist: false,
         artist_id: null,
-      });
+      };
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        // Supabase type metadata isn't wired up yet; cast for compatibility.
+        .insert(profileInsert as never);
 
       if (profileError) throw profileError;
     }
