@@ -1,18 +1,9 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import type { Tables, TablesInsert } from '../lib/database.types';
 
-interface Profile {
-  id: string;
-  username: string;
-  display_name: string;
-  bio: string;
-  avatar_url: string;
-  is_premium: boolean;
-  is_admin: boolean;
-  is_artist: boolean;
-  artist_id: string | null;
-}
+type Profile = Tables<'profiles'>;
 
 interface AuthContextType {
   user: User | null;
@@ -31,11 +22,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const createProfileRecord = useCallback(async (authUser: User): Promise<Profile | null> => {
+    const metadataUsername = authUser.user_metadata?.username;
+    const metadataDisplayName = authUser.user_metadata?.display_name;
+
+    const fallbackBase =
+      (typeof metadataUsername === 'string' && metadataUsername.trim()) ||
+      (authUser.email ? authUser.email.split('@')[0] : null) ||
+      `user-${authUser.id.slice(0, 6)}`;
+
+    const sanitizedBase = fallbackBase
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '');
+
+    const uniqueSuffix = authUser.id.slice(0, 6);
+    const username = `${sanitizedBase || 'user'}-${uniqueSuffix}`;
+    const displayName =
+      (typeof metadataDisplayName === 'string' && metadataDisplayName.trim()) || sanitizedBase || 'Nieuwe gebruiker';
+
+    const profileInsert: TablesInsert<'profiles'> = {
+      id: authUser.id,
+      username,
+      display_name: displayName,
+      bio: '',
+      avatar_url: '',
+      is_premium: false,
+      is_admin: false,
+      is_artist: false,
+      artist_id: null,
+    };
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert(profileInsert as never)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error creating profile record:', error);
+      return null;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return data as Profile;
+  }, []);
+
+  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', userId)
+      .eq('id', authUser.id)
       .maybeSingle();
 
     if (error) {
@@ -43,21 +83,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
 
-    return data;
-  };
+    if (!data) {
+      return createProfileRecord(authUser);
+    }
 
-  const refreshProfile = async () => {
+    return data as Profile;
+  }, [createProfileRecord]);
+
+  const refreshProfile = useCallback(async () => {
     if (user) {
-      const profileData = await fetchProfile(user.id);
+      const profileData = await fetchProfile(user);
       setProfile(profileData);
     }
-  };
+  }, [user, fetchProfile]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id).then(setProfile);
+        fetchProfile(session.user).then(setProfile);
       }
       setLoading(false);
     });
@@ -66,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (async () => {
         setUser(session?.user ?? null);
         if (session?.user) {
-          const profileData = await fetchProfile(session.user.id);
+          const profileData = await fetchProfile(session.user);
           setProfile(profileData);
         } else {
           setProfile(null);
@@ -75,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchProfile]);
 
   const signUp = async (email: string, password: string, username: string, displayName: string) => {
     const { data, error } = await supabase.auth.signUp({
@@ -86,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
 
     if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
+      const profileInsert: TablesInsert<'profiles'> = {
         id: data.user.id,
         username,
         display_name: displayName,
@@ -96,7 +140,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         is_admin: false,
         is_artist: false,
         artist_id: null,
-      });
+      };
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        // Supabase type metadata isn't wired up yet; cast for compatibility.
+        .insert(profileInsert as never);
 
       if (profileError) throw profileError;
     }
@@ -123,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

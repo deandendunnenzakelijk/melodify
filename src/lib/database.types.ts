@@ -48,9 +48,10 @@ export interface Database {
           artist_id?: string | null
           created_at?: string
           updated_at?: string
-        }
       }
-      artists: {
+      Relationships: []
+    }
+    artists: {
         Row: {
           id: string
           name: string
@@ -80,9 +81,10 @@ export interface Database {
           monthly_listeners?: number
           profile_id?: string | null
           created_at?: string
-        }
       }
-      albums: {
+      Relationships: []
+    }
+    albums: {
         Row: {
           id: string
           title: string
@@ -109,9 +111,10 @@ export interface Database {
           release_date?: string
           total_tracks?: number
           created_at?: string
-        }
       }
-      tracks: {
+      Relationships: []
+    }
+    tracks: {
         Row: {
           id: string
           title: string
@@ -147,9 +150,10 @@ export interface Database {
           play_count?: number
           explicit?: boolean
           created_at?: string
-        }
       }
-      playlists: {
+      Relationships: []
+    }
+    playlists: {
         Row: {
           id: string
           user_id: string
@@ -179,9 +183,10 @@ export interface Database {
           is_public?: boolean
           created_at?: string
           updated_at?: string
-        }
       }
-      playlist_tracks: {
+      Relationships: []
+    }
+    playlist_tracks: {
         Row: {
           id: string
           playlist_id: string
@@ -202,9 +207,10 @@ export interface Database {
           track_id?: string
           position?: number
           added_at?: string
-        }
       }
-      liked_tracks: {
+      Relationships: []
+    }
+    liked_tracks: {
         Row: {
           id: string
           user_id: string
@@ -222,9 +228,10 @@ export interface Database {
           user_id?: string
           track_id?: string
           created_at?: string
-        }
       }
-      listening_history: {
+      Relationships: []
+    }
+    listening_history: {
         Row: {
           id: string
           user_id: string
@@ -242,9 +249,10 @@ export interface Database {
           user_id?: string
           track_id?: string
           played_at?: string
-        }
       }
-      follows: {
+      Relationships: []
+    }
+    follows: {
         Row: {
           id: string
           follower_id: string
@@ -264,6 +272,28 @@ export interface Database {
           created_at?: string
         }
       }
+      Relationships: []
     }
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
   }
 }
+
+type PublicSchema = Database['public']
+
+export type Tables<TableName extends keyof PublicSchema['Tables']> =
+  PublicSchema['Tables'][TableName] extends { Row: infer Row }
+    ? Row
+    : never
+
+export type TablesInsert<TableName extends keyof PublicSchema['Tables']> =
+  PublicSchema['Tables'][TableName] extends { Insert: infer Insert }
+    ? Insert
+    : never
+
+export type TablesUpdate<TableName extends keyof PublicSchema['Tables']> =
+  PublicSchema['Tables'][TableName] extends { Update: infer Update }
+    ? Update
+    : never

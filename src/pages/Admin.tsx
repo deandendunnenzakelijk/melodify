@@ -2,25 +2,10 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import type { Tables, TablesInsert } from '../lib/database.types';
 
-interface Artist {
-  id: string;
-  name: string;
-  bio: string;
-  avatar_url: string;
-  verified: boolean;
-  profile_id?: string | null;
-}
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-}
+type Artist = Tables<'artists'>;
+type Track = Tables<'tracks'>;
 
 export default function Admin() {
   const { profile } = useAuth();
@@ -65,12 +50,16 @@ export default function Admin() {
   const addArtist = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const { error } = await supabase.from('artists').insert({
+    const artistInsert: TablesInsert<'artists'> = {
       name: artistName,
       bio: artistBio,
       avatar_url: artistAvatar,
       verified: false,
-    });
+    };
+
+    const { error } = await supabase
+      .from('artists')
+      .insert(artistInsert as never);
 
     if (!error) {
       setArtistName('');
@@ -84,14 +73,20 @@ export default function Admin() {
   const addTrack = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const { error } = await supabase.from('tracks').insert({
+    const durationValue = Number.parseInt(trackDuration, 10);
+
+    const trackInsert: TablesInsert<'tracks'> = {
       title: trackTitle,
       artist_id: trackArtistId,
-      duration: parseInt(trackDuration),
+      duration: Number.isNaN(durationValue) ? undefined : durationValue,
       audio_url: trackAudioUrl,
       cover_url: trackCoverUrl,
       explicit: trackExplicit,
-    });
+    };
+
+    const { error } = await supabase
+      .from('tracks')
+      .insert(trackInsert as never);
 
     if (!error) {
       setTrackTitle('');

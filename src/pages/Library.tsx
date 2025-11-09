@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Music2, Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
+import type { TrackWithArtist } from '../types/tracks';
 
 interface Playlist {
   id: string;
@@ -19,13 +20,15 @@ export default function Library() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (profile) {
-      loadLibrary();
-    }
-  }, [profile]);
+  interface PlaylistWithRelations extends Playlist {
+    playlist_tracks: { count: number }[];
+  }
 
-  const loadLibrary = async () => {
+  interface PlaylistTrackRow {
+    track: TrackWithArtist;
+  }
+
+  const loadLibrary = useCallback(async () => {
     if (!profile) return;
 
     const { data: playlistsData } = await supabase
@@ -38,7 +41,7 @@ export default function Library() {
       .order('created_at', { ascending: false });
 
     if (playlistsData) {
-      const playlistsWithCount = playlistsData.map((p: any) => ({
+      const playlistsWithCount = playlistsData.map((p: PlaylistWithRelations) => ({
         ...p,
         track_count: p.playlist_tracks[0]?.count || 0,
       }));
@@ -46,7 +49,13 @@ export default function Library() {
     }
 
     setLoading(false);
-  };
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile) {
+      loadLibrary();
+    }
+  }, [profile, loadLibrary]);
 
   const playPlaylist = async (playlistId: string) => {
     const { data: playlistTracks } = await supabase
@@ -61,7 +70,7 @@ export default function Library() {
       .order('position', { ascending: true });
 
     if (playlistTracks && playlistTracks.length > 0) {
-      const tracks = playlistTracks.map((pt: any) => pt.track);
+      const tracks = playlistTracks.map((pt: PlaylistTrackRow) => pt.track);
       playTrack(tracks[0], tracks);
     }
   };

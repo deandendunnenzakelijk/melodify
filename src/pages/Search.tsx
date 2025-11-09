@@ -1,20 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search as SearchIcon, Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { usePlayer } from '../contexts/PlayerContext';
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  artist?: {
-    name: string;
-  };
-}
+import type { TrackWithArtist } from '../types/tracks';
 
 interface Artist {
   id: string;
@@ -27,20 +15,11 @@ interface Artist {
 export default function Search() {
   const { playTrack } = usePlayer();
   const [query, setQuery] = useState('');
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<TrackWithArtist[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (query.length > 0) {
-      searchContent();
-    } else {
-      setTracks([]);
-      setArtists([]);
-    }
-  }, [query]);
-
-  const searchContent = async () => {
+  const searchContent = useCallback(async () => {
     setLoading(true);
 
     const { data: tracksData } = await supabase
@@ -58,11 +37,20 @@ export default function Search() {
       .ilike('name', `%${query}%`)
       .limit(5);
 
-    if (tracksData) setTracks(tracksData as Track[]);
+    if (tracksData) setTracks(tracksData as TrackWithArtist[]);
     if (artistsData) setArtists(artistsData);
 
     setLoading(false);
-  };
+  }, [query]);
+
+  useEffect(() => {
+    if (query.length > 0) {
+      searchContent();
+    } else {
+      setTracks([]);
+      setArtists([]);
+    }
+  }, [query, searchContent]);
 
   return (
     <div className="p-8">

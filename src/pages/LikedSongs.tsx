@@ -1,36 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Heart, Play, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
 import { formatTime } from '../lib/utils';
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  artist?: {
-    name: string;
-  };
-}
+import type { TrackWithArtist } from '../types/tracks';
 
 export default function LikedSongs() {
   const { profile } = useAuth();
   const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
-  const [likedTracks, setLikedTracks] = useState<Track[]>([]);
+  const [likedTracks, setLikedTracks] = useState<TrackWithArtist[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (profile) {
-      loadLikedSongs();
-    }
-  }, [profile]);
+  interface LikedTrackRow {
+    track: TrackWithArtist;
+  }
 
-  const loadLikedSongs = async () => {
+  const loadLikedSongs = useCallback(async () => {
     if (!profile) return;
 
     const { data } = await supabase
@@ -45,12 +31,18 @@ export default function LikedSongs() {
       .order('created_at', { ascending: false });
 
     if (data) {
-      const tracks = data.map((item: any) => item.track);
+      const tracks = data.map((item: LikedTrackRow) => item.track);
       setLikedTracks(tracks);
     }
 
     setLoading(false);
-  };
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile) {
+      loadLikedSongs();
+    }
+  }, [profile, loadLikedSongs]);
 
   if (loading) {
     return (

@@ -28,8 +28,9 @@ export default function Auth() {
         }
         await signUp(email, password, username, displayName);
       }
-    } catch (err: any) {
-      setError(err.message || 'Er is iets misgegaan');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Er is iets misgegaan';
+      setError(message);
     } finally {
       setLoading(false);
     }

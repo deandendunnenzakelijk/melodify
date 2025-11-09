@@ -1,37 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { usePlayer } from '../contexts/PlayerContext';
 import { useAuth } from '../contexts/AuthContext';
-
-interface Track {
-  id: string;
-  title: string;
-  artist_id: string;
-  album_id: string | null;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  play_count: number;
-  artist?: {
-    name: string;
-  };
-}
+import type { TrackWithArtist } from '../types/tracks';
 
 export default function Home() {
   const { playTrack } = usePlayer();
   const { profile } = useAuth();
-  const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
-  const [recentTracks, setRecentTracks] = useState<Track[]>([]);
-  const [recommendedTracks, setRecommendedTracks] = useState<Track[]>([]);
+  const [trendingTracks, setTrendingTracks] = useState<TrackWithArtist[]>([]);
+  const [recentTracks, setRecentTracks] = useState<TrackWithArtist[]>([]);
+  const [recommendedTracks, setRecommendedTracks] = useState<TrackWithArtist[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [profile]);
+  interface ListeningHistoryItem {
+    track: TrackWithArtist;
+  }
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const { data: trending } = await supabase
       .from('tracks')
       .select(`
@@ -42,7 +28,7 @@ export default function Home() {
       .limit(6);
 
     if (trending) {
-      setTrendingTracks(trending as Track[]);
+      setTrendingTracks(trending as TrackWithArtist[]);
     }
 
     if (profile) {
@@ -60,9 +46,11 @@ export default function Home() {
 
       if (recent) {
         const uniqueTracks = Array.from(
-          new Map(recent.map((item: any) => [item.track.id, item.track])).values()
+          new Map<TrackWithArtist['id'], TrackWithArtist>(
+            recent.map((item: ListeningHistoryItem) => [item.track.id, item.track])
+          ).values()
         );
-        setRecentTracks(uniqueTracks as Track[]);
+        setRecentTracks(uniqueTracks);
       }
     }
 
@@ -75,13 +63,17 @@ export default function Home() {
       .limit(6);
 
     if (recommended) {
-      setRecommendedTracks(recommended as Track[]);
+      setRecommendedTracks(recommended as TrackWithArtist[]);
     }
 
     setLoading(false);
-  };
+  }, [profile]);
 
-  const TrackGrid = ({ tracks, title }: { tracks: Track[]; title: string }) => (
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const TrackGrid = ({ tracks, title }: { tracks: TrackWithArtist[]; title: string }) => (
     <div className="mb-8">
       <h2 className="text-2xl font-bold text-white mb-4">{title}</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

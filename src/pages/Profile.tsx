@@ -1,29 +1,13 @@
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react';
 import { User, Edit2, Upload, Sparkles, Music2, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { uploadFileToR2 } from '../lib/r2';
+import type { Tables, TablesInsert, TablesUpdate } from '../lib/database.types';
+import type { TrackWithArtist } from '../types/tracks';
 
-interface ArtistProfile {
-  id: string;
-  name: string;
-  bio: string;
-  avatar_url: string;
-  verified: boolean;
-  profile_id: string | null;
-  created_at: string;
-}
-
-interface ArtistTrack {
-  id: string;
-  title: string;
-  artist_id: string;
-  duration: number;
-  audio_url: string;
-  cover_url: string;
-  explicit: boolean;
-  created_at: string;
-}
+type ArtistProfile = Tables<'artists'>;
+type ArtistTrack = TrackWithArtist;
 
 const getAudioDuration = (file: File): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -48,6 +32,11 @@ export default function Profile() {
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarFileName, setAvatarFileName] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [stats, setStats] = useState({
     likedTracks: 0,
     playlists: 0,
@@ -58,6 +47,7 @@ export default function Profile() {
   const [artistLoading, setArtistLoading] = useState(false);
   const [artistError, setArtistError] = useState<string | null>(null);
   const [artistSuccess, setArtistSuccess] = useState<string | null>(null);
+  const [shouldShowArtistSuccess, setShouldShowArtistSuccess] = useState(false);
   const [isArtistEditing, setIsArtistEditing] = useState(false);
   const [artistName, setArtistName] = useState('');
   const [artistBio, setArtistBio] = useState('');
@@ -75,28 +65,10 @@ export default function Profile() {
   const [trackSuccess, setTrackSuccess] = useState<string | null>(null);
 
   const activeArtistId = profile?.artist_id ?? artistProfile?.id ?? null;
-  const isArtistModeActive = Boolean(profile?.is_artist || artistProfile);
+  const isArtistModeActive = Boolean(profile?.is_artist || profile?.artist_id || artistProfile);
   const isActivatingArtistMode = !profile?.is_artist && !!artistProfile;
 
-  useEffect(() => {
-    if (profile) {
-      setDisplayName(profile.display_name);
-      setBio(profile.bio);
-      setAvatarUrl(profile.avatar_url);
-      loadStats();
-      if (profile.is_artist) {
-        loadArtistData();
-      } else {
-        setArtistProfile(null);
-        setArtistTracks([]);
-        setIsArtistEditing(false);
-        setArtistError(null);
-        setArtistSuccess(null);
-      }
-    }
-  }, [profile]);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     if (!profile) return;
 
     const [likedTracksRes, playlistsRes, followingRes] = await Promise.all([
@@ -110,7 +82,7 @@ export default function Profile() {
       playlists: playlistsRes.count || 0,
       following: followingRes.count || 0,
     });
-  };
+  }, [profile]);
 
   useEffect(() => {
     if (artistProfile && !isArtistEditing) {
@@ -120,13 +92,37 @@ export default function Profile() {
     }
   }, [artistProfile, isArtistEditing]);
 
+  const clearArtistStatus = useCallback(() => {
+    setArtistSuccess(null);
+    setShouldShowArtistSuccess(false);
+  }, []);
+
+  const showArtistSuccess = useCallback((message: string) => {
+    setArtistSuccess(message);
+    setShouldShowArtistSuccess(true);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShowArtistSuccess || !artistSuccess) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      clearArtistStatus();
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [artistSuccess, shouldShowArtistSuccess, clearArtistStatus]);
+
   interface LoadArtistDataOptions {
     artistId?: string;
     profileId?: string;
     skipArtistCheck?: boolean;
   }
 
-  const loadArtistData = async (options: LoadArtistDataOptions = {}) => {
+  const loadArtistData = useCallback(async (options: LoadArtistDataOptions = {}) => {
     const activeProfileId = options.profileId ?? profile?.id;
     if (!activeProfileId) return;
 
@@ -139,22 +135,51 @@ export default function Profile() {
 
     try {
       const targetArtistId = options.artistId ?? profile?.artist_id ?? null;
+      let artistData: ArtistProfile | null = null;
 
-      const artistQuery = targetArtistId
-        ? supabase.from('artists').select('*').eq('id', targetArtistId)
-        : supabase.from('artists').select('*').eq('profile_id', activeProfileId);
-
-      const { data: artistData, error: artistError } = await artistQuery.maybeSingle();
-
-      if (artistError) throw artistError;
+      if (targetArtistId) {
+        const { data, error } = await supabase
+          .from('artists')
+          .select('*')
+          .eq('id', targetArtistId)
+          .maybeSingle();
+        if (error) throw error;
+        artistData = (data as ArtistProfile | null) ?? null;
+      } else {
+        const { data, error } = await supabase
+          .from('artists')
+          .select('*')
+          .eq('profile_id', activeProfileId)
+          .maybeSingle();
+        if (error) throw error;
+        artistData = (data as ArtistProfile | null) ?? null;
+      }
 
       setArtistProfile(artistData);
 
       if (artistData) {
-        if (profile && !profile.artist_id && !options.artistId && artistData.profile_id === profile.id) {
-          await supabase.from('profiles').update({ artist_id: artistData.id }).eq('id', profile.id);
+        if (
+          profile &&
+          artistData.profile_id === profile.id &&
+          (!profile.artist_id || !profile.is_artist) &&
+          !options.artistId
+        ) {
+          const updates: TablesUpdate<'profiles'> = {};
+          if (!profile.artist_id) {
+            updates.artist_id = artistData.id;
+          }
+          if (!profile.is_artist) {
+            updates.is_artist = true;
+          }
+          if (Object.keys(updates).length > 0) {
+            await supabase
+              .from('profiles')
+              .update(updates as never)
+              .eq('id', profile.id);
+          }
           await refreshProfile();
         }
+
         const { data: trackData, error: trackError } = await supabase
           .from('tracks')
           .select('*')
@@ -162,7 +187,7 @@ export default function Profile() {
           .order('created_at', { ascending: false });
 
         if (trackError) throw trackError;
-        setArtistTracks(trackData || []);
+        setArtistTracks((trackData as TrackWithArtist[]) || []);
       } else {
         setArtistTracks([]);
       }
@@ -172,11 +197,33 @@ export default function Profile() {
     } finally {
       setArtistLoading(false);
     }
-  };
+  }, [profile, refreshProfile]);
+
+  useEffect(() => {
+    if (profile) {
+      setDisplayName(profile.display_name);
+      setBio(profile.bio);
+      setAvatarUrl(profile.avatar_url);
+      loadStats();
+      if (profile.is_artist || profile.artist_id) {
+        loadArtistData({
+          artistId: profile.artist_id ?? undefined,
+          profileId: profile.id,
+          skipArtistCheck: true,
+        });
+      } else {
+        setArtistProfile(null);
+        setArtistTracks([]);
+        setIsArtistEditing(false);
+        setArtistError(null);
+        clearArtistStatus();
+      }
+    }
+  }, [profile, loadStats, loadArtistData, clearArtistStatus]);
 
   const startArtistEditing = () => {
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
     setIsArtistEditing(true);
     setArtistName(artistProfile?.name || profile?.display_name || '');
     setArtistBio(artistProfile?.bio || '');
@@ -198,6 +245,37 @@ export default function Profile() {
     setAudioFileName(file ? file.name : '');
   };
 
+  const handleAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setAvatarFile(file);
+    setAvatarFileName(file ? file.name : '');
+  };
+
+  const handleUploadAvatar = async () => {
+    if (!profile || !avatarFile) return;
+
+    setAvatarUploading(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
+    try {
+      const upload = await uploadFileToR2(avatarFile, {
+        folder: `profiles/${profile.id}/avatars`,
+      });
+      setAvatarUrl(upload.publicUrl);
+      setProfileMessage('Profielfoto geüpload. Vergeet niet op te slaan.');
+      setAvatarFile(null);
+      setAvatarFileName('');
+    } catch (error) {
+      console.error(error);
+      setProfileError(
+        error instanceof Error ? error.message : 'Het uploaden van de profielfoto is mislukt.'
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const handleCoverFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setCoverFile(file);
@@ -210,7 +288,7 @@ export default function Profile() {
 
     setArtistSaving(true);
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
 
     try {
       let resolvedArtistId: string | null = profile.artist_id ?? artistProfile?.id ?? null;
@@ -220,47 +298,55 @@ export default function Profile() {
         const artistId = profile.artist_id || artistProfile?.id;
         if (!artistId) throw new Error('Geen artiestprofiel gevonden.');
 
+        const artistUpdates: TablesUpdate<'artists'> = {
+          name: artistName,
+          bio: artistBio,
+          avatar_url: artistAvatar,
+        };
+
         const { error } = await supabase
           .from('artists')
-          .update({
-            name: artistName,
-            bio: artistBio,
-            avatar_url: artistAvatar,
-          })
+          .update(artistUpdates as never)
           .eq('id', artistId)
           .eq('profile_id', profile.id);
 
         if (error) throw error;
-        setArtistSuccess('Artistprofiel bijgewerkt.');
+        showArtistSuccess('Artistprofiel bijgewerkt.');
         resolvedArtistId = artistId;
       } else {
+        const artistInsert: TablesInsert<'artists'> = {
+          name: artistName,
+          bio: artistBio,
+          avatar_url: artistAvatar,
+          profile_id: profile.id,
+          verified: false,
+        };
+
         const { data, error } = await supabase
           .from('artists')
-          .insert({
-            name: artistName,
-            bio: artistBio,
-            avatar_url: artistAvatar,
-            profile_id: profile.id,
-            verified: false,
-          })
+          .insert(artistInsert as never)
           .select()
           .maybeSingle();
 
         if (error) throw error;
         if (!data) throw new Error('Kon artiestprofiel niet opslaan.');
 
-        setArtistProfile(data);
+        const insertedArtist = data as ArtistProfile;
+        setArtistProfile(insertedArtist);
+
+        const profileUpdates: TablesUpdate<'profiles'> = {
+          is_artist: true,
+          artist_id: insertedArtist.id,
+        };
+
         const { error: profileError } = await supabase
           .from('profiles')
-          .update({
-            is_artist: true,
-            artist_id: data.id,
-          })
+          .update(profileUpdates as never)
           .eq('id', profile.id);
 
         if (profileError) throw profileError;
-        setArtistSuccess('Artiestmodus is geactiveerd!');
-        resolvedArtistId = data.id;
+        showArtistSuccess('Artiestmodus is geactiveerd!');
+        resolvedArtistId = insertedArtist.id;
         shouldSkipArtistCheck = true;
         await refreshProfile();
       }
@@ -288,18 +374,25 @@ export default function Profile() {
 
     setArtistModeUpdating(true);
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
 
     try {
+      const profileUpdates: TablesUpdate<'profiles'> = {
+        is_artist: false,
+        artist_id: null,
+      };
+
       const { error } = await supabase
         .from('profiles')
-        .update({ is_artist: false })
+        .update(profileUpdates as never)
         .eq('id', profile.id);
 
       if (error) throw error;
 
       await refreshProfile();
-      setArtistSuccess('Artiestmodus is uitgeschakeld.');
+      setArtistProfile(null);
+      setArtistTracks([]);
+      showArtistSuccess('Artiestmodus is uitgeschakeld.');
     } catch (error) {
       console.error(error);
       setArtistError(error instanceof Error ? error.message : 'Kon artiestmodus niet uitschakelen.');
@@ -339,23 +432,26 @@ export default function Profile() {
         coverUrl = coverUpload.publicUrl;
       }
 
+      const trackInsert: TablesInsert<'tracks'> = {
+        title: trackTitle,
+        artist_id: activeArtistId,
+        duration: duration || 0,
+        audio_url: audioUpload.publicUrl,
+        cover_url: coverUrl,
+        explicit: trackExplicit,
+      };
+
       const { data, error } = await supabase
         .from('tracks')
-        .insert({
-          title: trackTitle,
-          artist_id: activeArtistId,
-          duration: duration || 0,
-          audio_url: audioUpload.publicUrl,
-          cover_url: coverUrl,
-          explicit: trackExplicit,
-        })
+        .insert(trackInsert as never)
         .select()
         .maybeSingle();
 
       if (error) throw error;
 
       if (data) {
-        setArtistTracks((prev) => [data, ...prev]);
+        const newTrack = data as TrackWithArtist;
+        setArtistTracks((prev) => [newTrack, ...prev]);
       }
 
       setTrackSuccess('Je track is geüpload!');
@@ -371,19 +467,26 @@ export default function Profile() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
+    const profileUpdates: TablesUpdate<'profiles'> = {
+      display_name: displayName,
+      bio,
+      avatar_url: avatarUrl,
+    };
 
     const { error } = await supabase
       .from('profiles')
-      .update({
-        display_name: displayName,
-        bio: bio,
-        avatar_url: avatarUrl,
-      })
+      .update(profileUpdates as never)
       .eq('id', profile!.id);
 
     if (!error) {
       await refreshProfile();
       setIsEditing(false);
+      setProfileMessage('Profiel bijgewerkt.');
+    } else {
+      setProfileError('Het bijwerken van je profiel is mislukt.');
     }
 
     setLoading(false);
@@ -424,7 +527,14 @@ export default function Profile() {
             </div>
 
             <button
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                setProfileError(null);
+                setProfileMessage(null);
+                setAvatarFile(null);
+                setAvatarFileName('');
+                setAvatarUploading(false);
+                setIsEditing((prev) => !prev);
+              }}
               className="bg-white hover:bg-gray-200 text-black rounded-full px-6 py-2 font-semibold flex items-center gap-2"
             >
               <Edit2 className="w-4 h-4" />
@@ -432,6 +542,17 @@ export default function Profile() {
             </button>
           </div>
         </div>
+
+        {profileError && (
+          <div className="bg-red-500/10 border border-red-500/40 text-red-200 px-4 py-3 rounded-lg mt-4">
+            {profileError}
+          </div>
+        )}
+        {profileMessage && (
+          <div className="bg-green-500/10 border border-green-500/40 text-green-200 px-4 py-3 rounded-lg mt-4">
+            {profileMessage}
+          </div>
+        )}
 
         {isEditing && (
           <div className="bg-gray-800 dark:bg-gray-900 rounded-2xl p-8">
@@ -476,6 +597,31 @@ export default function Profile() {
                 />
               </div>
 
+              <div>
+                <label className="block text-white text-sm font-semibold mb-2">Profielfoto uploaden</label>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <label className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-3 rounded-lg cursor-pointer transition">
+                    <Upload className="w-4 h-4" />
+                    <span>{avatarFileName || 'Kies een afbeelding'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleUploadAvatar}
+                    disabled={!avatarFile || avatarUploading}
+                    className="sm:w-auto bg-green-500 hover:bg-green-400 disabled:bg-green-500/50 disabled:cursor-not-allowed text-black font-semibold px-4 py-3 rounded-lg transition"
+                  >
+                    {avatarUploading ? 'Uploaden...' : 'Uploaden'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Ondersteunt JPG, PNG en GIF. Maximaal 10 MB.</p>
+              </div>
+
               <div className="flex gap-4">
                 <button
                   type="submit"
@@ -486,7 +632,17 @@ export default function Profile() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setIsEditing(false);
+                    if (profile) {
+                      setDisplayName(profile.display_name);
+                      setBio(profile.bio);
+                      setAvatarUrl(profile.avatar_url);
+                    }
+                    setAvatarFile(null);
+                    setAvatarFileName('');
+                    setAvatarUploading(false);
+                  }}
                   className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-colors"
                 >
                   Annuleren
