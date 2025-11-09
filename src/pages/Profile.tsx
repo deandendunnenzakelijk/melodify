@@ -47,6 +47,7 @@ export default function Profile() {
   const [artistLoading, setArtistLoading] = useState(false);
   const [artistError, setArtistError] = useState<string | null>(null);
   const [artistSuccess, setArtistSuccess] = useState<string | null>(null);
+  const [shouldShowArtistSuccess, setShouldShowArtistSuccess] = useState(false);
   const [isArtistEditing, setIsArtistEditing] = useState(false);
   const [artistName, setArtistName] = useState('');
   const [artistBio, setArtistBio] = useState('');
@@ -90,6 +91,30 @@ export default function Profile() {
       setArtistAvatar(artistProfile.avatar_url || '');
     }
   }, [artistProfile, isArtistEditing]);
+
+  const clearArtistStatus = useCallback(() => {
+    setArtistSuccess(null);
+    setShouldShowArtistSuccess(false);
+  }, []);
+
+  const showArtistSuccess = useCallback((message: string) => {
+    setArtistSuccess(message);
+    setShouldShowArtistSuccess(true);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShowArtistSuccess || !artistSuccess) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      clearArtistStatus();
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [artistSuccess, shouldShowArtistSuccess, clearArtistStatus]);
 
   interface LoadArtistDataOptions {
     artistId?: string;
@@ -191,14 +216,14 @@ export default function Profile() {
         setArtistTracks([]);
         setIsArtistEditing(false);
         setArtistError(null);
-        setArtistSuccess(null);
+        clearArtistStatus();
       }
     }
-  }, [profile, loadStats, loadArtistData]);
+  }, [profile, loadStats, loadArtistData, clearArtistStatus]);
 
   const startArtistEditing = () => {
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
     setIsArtistEditing(true);
     setArtistName(artistProfile?.name || profile?.display_name || '');
     setArtistBio(artistProfile?.bio || '');
@@ -263,7 +288,7 @@ export default function Profile() {
 
     setArtistSaving(true);
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
 
     try {
       let resolvedArtistId: string | null = profile.artist_id ?? artistProfile?.id ?? null;
@@ -286,7 +311,7 @@ export default function Profile() {
           .eq('profile_id', profile.id);
 
         if (error) throw error;
-        setArtistSuccess('Artistprofiel bijgewerkt.');
+        showArtistSuccess('Artistprofiel bijgewerkt.');
         resolvedArtistId = artistId;
       } else {
         const artistInsert: TablesInsert<'artists'> = {
@@ -320,7 +345,7 @@ export default function Profile() {
           .eq('id', profile.id);
 
         if (profileError) throw profileError;
-        setArtistSuccess('Artiestmodus is geactiveerd!');
+        showArtistSuccess('Artiestmodus is geactiveerd!');
         resolvedArtistId = insertedArtist.id;
         shouldSkipArtistCheck = true;
         await refreshProfile();
@@ -349,7 +374,7 @@ export default function Profile() {
 
     setArtistModeUpdating(true);
     setArtistError(null);
-    setArtistSuccess(null);
+    clearArtistStatus();
 
     try {
       const profileUpdates: TablesUpdate<'profiles'> = {
@@ -367,7 +392,7 @@ export default function Profile() {
       await refreshProfile();
       setArtistProfile(null);
       setArtistTracks([]);
-      setArtistSuccess('Artiestmodus is uitgeschakeld.');
+      showArtistSuccess('Artiestmodus is uitgeschakeld.');
     } catch (error) {
       console.error(error);
       setArtistError(error instanceof Error ? error.message : 'Kon artiestmodus niet uitschakelen.');
