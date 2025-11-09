@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Heart, Play, Clock } from 'lucide-react';
+import { Heart, Play, Pause, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { usePlayer } from '../contexts/PlayerContext';
+import { usePlayerControls, useNowPlaying } from '../contexts/PlayerContext';
 import { formatTime } from '../lib/utils';
 
 interface Track {
@@ -18,9 +18,14 @@ interface Track {
   };
 }
 
-export default function LikedSongs() {
+interface LikedSongsProps {
+  onOpenArtist?: (artistId: string) => void;
+}
+
+export default function LikedSongs({ onOpenArtist }: LikedSongsProps) {
   const { profile } = useAuth();
-  const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { playTrack, togglePlay } = usePlayerControls();
+  const { currentTrack, isPlaying } = useNowPlaying();
   const [likedTracks, setLikedTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,10 +87,20 @@ export default function LikedSongs() {
       <div className="bg-black/20 dark:bg-black/40 p-8">
         {likedTracks.length > 0 && (
           <button
-            onClick={() => playTrack(likedTracks[0], likedTracks)}
+            onClick={() => {
+              if (currentTrack && likedTracks.some((track) => track.id === currentTrack.id)) {
+                togglePlay();
+              } else {
+                playTrack(likedTracks[0], likedTracks);
+              }
+            }}
             className="bg-green-500 hover:bg-green-400 text-black rounded-full p-4 mb-6 transition-all hover:scale-105 shadow-lg"
           >
-            <Play className="w-7 h-7 fill-current" />
+            {currentTrack && likedTracks.some((track) => track.id === currentTrack.id) && isPlaying ? (
+              <Pause className="w-7 h-7" />
+            ) : (
+              <Play className="w-7 h-7 fill-current" />
+            )}
           </button>
         )}
 
@@ -104,25 +119,26 @@ export default function LikedSongs() {
             </div>
 
             <div className="space-y-1">
-              {likedTracks.map((track, index) => (
-                <div
-                  key={track.id}
-                  className={`grid grid-cols-[auto_2fr_1fr_auto] gap-4 px-4 py-3 rounded hover:bg-white/10 dark:hover:bg-white/5 group cursor-pointer ${
-                    currentTrack?.id === track.id ? 'bg-white/10 dark:bg-white/5' : ''
-                  }`}
-                  onClick={() => playTrack(track, likedTracks)}
-                >
+              {likedTracks.map((track, index) => {
+                const isCurrent = currentTrack?.id === track.id;
+                const showPause = isCurrent && isPlaying;
+                return (
+                  <div
+                    key={track.id}
+                    className={`grid grid-cols-[auto_2fr_1fr_auto] gap-4 px-4 py-3 rounded hover:bg-white/10 dark:hover:bg-white/5 group cursor-pointer ${
+                      isCurrent ? 'bg-white/10 dark:bg-white/5' : ''
+                    }`}
+                    onClick={() => {
+                      if (isCurrent) {
+                        togglePlay();
+                      } else {
+                        playTrack(track, likedTracks);
+                      }
+                    }}
+                  >
                   <div className="flex items-center justify-center text-gray-400">
-                    {currentTrack?.id === track.id && isPlaying ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          togglePlay();
-                        }}
-                        className="text-green-500"
-                      >
-                        <span className="text-sm">▶</span>
-                      </button>
+                    {showPause ? (
+                      <Pause className="w-4 h-4 text-green-500" />
                     ) : (
                       <span className="group-hover:hidden">{index + 1}</span>
                     )}
@@ -130,10 +146,18 @@ export default function LikedSongs() {
                       className="hidden group-hover:block"
                       onClick={(e) => {
                         e.stopPropagation();
-                        playTrack(track, likedTracks);
+                        if (isCurrent) {
+                          togglePlay();
+                        } else {
+                          playTrack(track, likedTracks);
+                        }
                       }}
                     >
-                      <Play className="w-4 h-4 fill-current" />
+                      {showPause ? (
+                        <Pause className="w-4 h-4" />
+                      ) : (
+                        <Play className="w-4 h-4 fill-current" />
+                      )}
                     </button>
                   </div>
 
@@ -153,14 +177,26 @@ export default function LikedSongs() {
                   </div>
 
                   <div className="flex items-center text-gray-400 truncate">
-                    {track.artist?.name || 'Unknown Artist'}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (track.artist_id) {
+                          onOpenArtist?.(track.artist_id);
+                        }
+                      }}
+                      className="text-left hover:text-white transition-colors"
+                    >
+                      {track.artist?.name || 'Unknown Artist'}
+                    </button>
                   </div>
 
                   <div className="flex items-center text-gray-400">
                     {formatTime(track.duration)}
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

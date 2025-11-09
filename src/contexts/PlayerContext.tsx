@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useRef, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
@@ -16,7 +24,7 @@ interface Track {
   };
 }
 
-interface PlayerContextType {
+interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
   queue: Track[];
@@ -25,6 +33,10 @@ interface PlayerContextType {
   volume: number;
   repeat: 'off' | 'all' | 'one';
   shuffle: boolean;
+  isLiked: boolean;
+}
+
+interface PlayerControls {
   playTrack: (track: Track, playlist?: Track[]) => void;
   togglePlay: () => void;
   playNext: () => void;
@@ -34,11 +46,17 @@ interface PlayerContextType {
   toggleRepeat: () => void;
   toggleShuffle: () => void;
   addToQueue: (track: Track) => void;
-  isLiked: boolean;
   toggleLike: () => Promise<void>;
 }
 
-const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
+interface NowPlayingState {
+  currentTrack: Track | null;
+  isPlaying: boolean;
+}
+
+const PlayerStateContext = createContext<PlayerState | undefined>(undefined);
+const PlayerControlsContext = createContext<PlayerControls | undefined>(undefined);
+const NowPlayingContext = createContext<NowPlayingState | undefined>(undefined);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -55,28 +73,197 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const addToHistory = useCallback(async (trackId: string) => {
+    if (!user) return;
+
+    await supabase.from('listening_history').insert({
+      user_id: user.id,
+      track_id: trackId,
+    });
+  }, [user]);
+
+  const playTrack = useCallback((track: Track, playlist?: Track[]) => {
+    setCurrentTrack(track);
+    setQueue(playlist || [track]);
+    if (playlist && playlist.length > 0) {
+      const playlistIndex = playlist.findIndex((item) => item.id === track.id);
+      setHistoryIndex(playlistIndex >= 0 ? playlistIndex : 0);
+    } else {
+      setHistoryIndex(0);
+    }
+
+    if (audioRef.current) {
+      audioRef.current.src = track.audio_url;
+      audioRef.current.currentTime = 0;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.error('Fout bij het afspelen van audio:', error);
+        });
+      }
+      setIsPlaying(true);
+      setCurrentTime(0);
+      setDuration(audioRef.current.duration || track.duration || 0);
+      addToHistory(track.id);
+    }
+  }, [addToHistory]);
+
+  const togglePlay = useCallback(() => {
+    if (!audioRef.current || !currentTrack) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.error('Fout bij het hervatten van audio:', error);
+        });
+      }
+      setIsPlaying(true);
+    }
+  }, [currentTrack, isPlaying]);
+
+  const seek = useCallback((time: number) => {
+    if (!audioRef.current) return;
+
+    const clampedTime = Math.max(0, Math.min(time, audioRef.current.duration || 0));
+    audioRef.current.currentTime = clampedTime;
+    setCurrentTime(clampedTime);
+  }, []);
+
+  const playNext = useCallback(() => {
+    if (queue.length === 0) return;
+
+    let nextIndex = historyIndex + 1;
+
+    if (nextIndex >= queue.length) {
+      if (repeat === 'all') {
+        nextIndex = 0;
+      } else {
+        setIsPlaying(false);
+        return;
+      }
+    }
+
+    setHistoryIndex(nextIndex);
+    playTrack(queue[nextIndex], queue);
+  }, [historyIndex, playTrack, queue, repeat]);
+
+  const playPrevious = useCallback(() => {
+    if (queue.length === 0) return;
+
+    if (currentTime > 3) {
+      seek(0);
+      return;
+    }
+
+    let prevIndex = historyIndex - 1;
+
+    if (prevIndex < 0) {
+      if (repeat === 'all') {
+        prevIndex = queue.length - 1;
+      } else {
+        prevIndex = 0;
+      }
+    }
+
+    setHistoryIndex(prevIndex);
+    playTrack(queue[prevIndex], queue);
+  }, [currentTime, historyIndex, playTrack, queue, repeat, seek]);
+
+  const setVolume = useCallback((newVolume: number) => {
+    setVolumeState(newVolume);
+  }, []);
+
+  const toggleRepeat = useCallback(() => {
+    setRepeat((prev) => {
+      if (prev === 'off') return 'all';
+      if (prev === 'all') return 'one';
+      return 'off';
+    });
+  }, []);
+
+  const toggleShuffle = useCallback(() => {
+    setShuffle((prevShuffle) => {
+      const nextShuffle = !prevShuffle;
+      if (!prevShuffle && queue.length > 0) {
+        const shuffled = [...queue].sort(() => Math.random() - 0.5);
+        const currentIndex = shuffled.findIndex((t) => t.id === currentTrack?.id);
+        if (currentIndex > 0) {
+          [shuffled[0], shuffled[currentIndex]] = [shuffled[currentIndex], shuffled[0]];
+        }
+        setQueue(shuffled);
+        setHistoryIndex(0);
+      }
+      return nextShuffle;
+    });
+  }, [currentTrack, queue]);
+
+  const addToQueue = useCallback((track: Track) => {
+    setQueue((prev) => [...prev, track]);
+  }, []);
+
+  const toggleLike = useCallback(async () => {
+    if (!user || !currentTrack) return;
+
+    if (isLiked) {
+      await supabase
+        .from('liked_tracks')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('track_id', currentTrack.id);
+      setIsLiked(false);
+    } else {
+      await supabase.from('liked_tracks').insert({
+        user_id: user.id,
+        track_id: currentTrack.id,
+      });
+      setIsLiked(true);
+    }
+  }, [currentTrack, isLiked, user]);
+
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
-      audioRef.current.volume = volume;
-
-      audioRef.current.addEventListener('timeupdate', () => {
-        setCurrentTime(audioRef.current?.currentTime || 0);
-      });
-
-      audioRef.current.addEventListener('loadedmetadata', () => {
-        setDuration(audioRef.current?.duration || 0);
-      });
-
-      audioRef.current.addEventListener('ended', () => {
-        if (repeat === 'one') {
-          audioRef.current?.play();
-        } else {
-          playNext();
-        }
-      });
     }
-  }, [repeat]);
+
+    const audio = audioRef.current;
+    audio.volume = volume;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime || 0);
+    };
+
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration || 0);
+    };
+
+    const handleEnded = () => {
+      if (repeat === 'one') {
+        audio.currentTime = 0;
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((error) => {
+            console.error('Fout bij het herhalen van audio:', error);
+          });
+        }
+      } else {
+        playNext();
+      }
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [playNext, repeat, volume]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -104,172 +291,73 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     checkIfLiked();
   }, [currentTrack, user]);
 
-  const addToHistory = async (trackId: string) => {
-    if (!user) return;
+  const stateValue = useMemo<PlayerState>(() => ({
+    currentTrack,
+    isPlaying,
+    queue,
+    currentTime,
+    duration,
+    volume,
+    repeat,
+    shuffle,
+    isLiked,
+  }), [currentTrack, currentTime, duration, isLiked, isPlaying, queue, repeat, shuffle, volume]);
 
-    await supabase.from('listening_history').insert({
-      user_id: user.id,
-      track_id: trackId,
-    });
+  const controlsValue = useMemo<PlayerControls>(() => ({
+    playTrack,
+    togglePlay,
+    playNext,
+    playPrevious,
+    seek,
+    setVolume,
+    toggleRepeat,
+    toggleShuffle,
+    addToQueue,
+    toggleLike,
+  }), [addToQueue, playNext, playPrevious, playTrack, seek, setVolume, toggleLike, toggleRepeat, toggleShuffle, togglePlay]);
 
-    await supabase
-      .from('tracks')
-      .update({ play_count: (currentTrack?.play_count || 0) + 1 })
-      .eq('id', trackId);
-  };
-
-  const playTrack = (track: Track, playlist?: Track[]) => {
-    setCurrentTrack(track);
-    setQueue(playlist || [track]);
-    setHistoryIndex(playlist?.findIndex(t => t.id === track.id) || 0);
-
-    if (audioRef.current) {
-      audioRef.current.src = track.audio_url;
-      audioRef.current.play();
-      setIsPlaying(true);
-      addToHistory(track.id);
-    }
-  };
-
-  const togglePlay = () => {
-    if (!audioRef.current || !currentTrack) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const playNext = () => {
-    if (queue.length === 0) return;
-
-    let nextIndex = historyIndex + 1;
-
-    if (nextIndex >= queue.length) {
-      if (repeat === 'all') {
-        nextIndex = 0;
-      } else {
-        setIsPlaying(false);
-        return;
-      }
-    }
-
-    setHistoryIndex(nextIndex);
-    playTrack(queue[nextIndex], queue);
-  };
-
-  const playPrevious = () => {
-    if (queue.length === 0) return;
-
-    if (currentTime > 3) {
-      seek(0);
-      return;
-    }
-
-    let prevIndex = historyIndex - 1;
-
-    if (prevIndex < 0) {
-      if (repeat === 'all') {
-        prevIndex = queue.length - 1;
-      } else {
-        prevIndex = 0;
-      }
-    }
-
-    setHistoryIndex(prevIndex);
-    playTrack(queue[prevIndex], queue);
-  };
-
-  const seek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const setVolume = (newVolume: number) => {
-    setVolumeState(newVolume);
-  };
-
-  const toggleRepeat = () => {
-    setRepeat(prev => {
-      if (prev === 'off') return 'all';
-      if (prev === 'all') return 'one';
-      return 'off';
-    });
-  };
-
-  const toggleShuffle = () => {
-    setShuffle(prev => !prev);
-    if (!shuffle && queue.length > 0) {
-      const shuffled = [...queue].sort(() => Math.random() - 0.5);
-      const currentIndex = shuffled.findIndex(t => t.id === currentTrack?.id);
-      if (currentIndex > 0) {
-        [shuffled[0], shuffled[currentIndex]] = [shuffled[currentIndex], shuffled[0]];
-      }
-      setQueue(shuffled);
-      setHistoryIndex(0);
-    }
-  };
-
-  const addToQueue = (track: Track) => {
-    setQueue(prev => [...prev, track]);
-  };
-
-  const toggleLike = async () => {
-    if (!user || !currentTrack) return;
-
-    if (isLiked) {
-      await supabase
-        .from('liked_tracks')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('track_id', currentTrack.id);
-      setIsLiked(false);
-    } else {
-      await supabase.from('liked_tracks').insert({
-        user_id: user.id,
-        track_id: currentTrack.id,
-      });
-      setIsLiked(true);
-    }
-  };
+  const nowPlayingValue = useMemo<NowPlayingState>(() => ({
+    currentTrack,
+    isPlaying,
+  }), [currentTrack, isPlaying]);
 
   return (
-    <PlayerContext.Provider
-      value={{
-        currentTrack,
-        isPlaying,
-        queue,
-        currentTime,
-        duration,
-        volume,
-        repeat,
-        shuffle,
-        playTrack,
-        togglePlay,
-        playNext,
-        playPrevious,
-        seek,
-        setVolume,
-        toggleRepeat,
-        toggleShuffle,
-        addToQueue,
-        isLiked,
-        toggleLike,
-      }}
-    >
-      {children}
-    </PlayerContext.Provider>
+    <PlayerStateContext.Provider value={stateValue}>
+      <PlayerControlsContext.Provider value={controlsValue}>
+        <NowPlayingContext.Provider value={nowPlayingValue}>
+          {children}
+        </NowPlayingContext.Provider>
+      </PlayerControlsContext.Provider>
+    </PlayerStateContext.Provider>
   );
 }
 
-export function usePlayer() {
-  const context = useContext(PlayerContext);
+export function usePlayerState() {
+  const context = useContext(PlayerStateContext);
   if (context === undefined) {
-    throw new Error('usePlayer must be used within a PlayerProvider');
+    throw new Error('usePlayerState must be used within a PlayerProvider');
   }
   return context;
+}
+
+export function usePlayerControls() {
+  const context = useContext(PlayerControlsContext);
+  if (context === undefined) {
+    throw new Error('usePlayerControls must be used within a PlayerProvider');
+  }
+  return context;
+}
+
+export function useNowPlaying() {
+  const context = useContext(NowPlayingContext);
+  if (context === undefined) {
+    throw new Error('useNowPlaying must be used within a PlayerProvider');
+  }
+  return context;
+}
+
+export function usePlayer() {
+  const state = usePlayerState();
+  const controls = usePlayerControls();
+  return { ...state, ...controls };
 }

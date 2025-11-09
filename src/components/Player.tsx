@@ -1,8 +1,13 @@
+import { useState, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, Volume2, Heart, Maximize2 } from 'lucide-react';
 import { usePlayer } from '../contexts/PlayerContext';
 import { formatTime } from '../lib/utils';
 
-export default function Player() {
+interface PlayerProps {
+  onOpenArtist?: (artistId: string) => void;
+}
+
+export default function Player({ onOpenArtist }: PlayerProps) {
   const {
     currentTrack,
     isPlaying,
@@ -21,19 +26,41 @@ export default function Player() {
     isLiked,
     toggleLike,
   } = usePlayer();
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [pendingSeek, setPendingSeek] = useState(0);
 
   if (!currentTrack) {
     return null;
   }
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const bounds = e.currentTarget.getBoundingClientRect();
-    const percent = (e.clientX - bounds.left) / bounds.width;
-    seek(duration * percent);
-  };
+  useEffect(() => {
+    if (!isSeeking) {
+      setPendingSeek(currentTime);
+    }
+  }, [currentTime, isSeeking]);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setVolume(parseFloat(e.target.value));
+  };
+
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Math.max(0, Math.min(parseFloat(e.target.value), duration || 0));
+    setPendingSeek(value);
+    seek(value);
+  };
+
+  const handleSeekStart = () => {
+    setIsSeeking(true);
+  };
+
+  const handleSeekEnd = () => {
+    setIsSeeking(false);
+  };
+
+  const handleArtistClick = () => {
+    if (onOpenArtist && currentTrack.artist_id) {
+      onOpenArtist(currentTrack.artist_id);
+    }
   };
 
   return (
@@ -46,9 +73,13 @@ export default function Player() {
         />
         <div className="flex-1 min-w-0">
           <div className="text-white font-semibold truncate">{currentTrack.title}</div>
-          <div className="text-gray-400 text-sm truncate">
+          <button
+            type="button"
+            onClick={handleArtistClick}
+            className="text-gray-400 text-sm truncate hover:text-white transition-colors"
+          >
             {currentTrack.artist?.name || 'Unknown Artist'}
-          </div>
+          </button>
         </div>
         <button
           onClick={toggleLike}
@@ -109,17 +140,22 @@ export default function Player() {
           <span className="text-xs text-gray-400 w-10 text-right">
             {formatTime(currentTime)}
           </span>
-          <div
-            className="flex-1 h-1 bg-gray-700 rounded-full cursor-pointer group"
-            onClick={handleProgressClick}
-          >
-            <div
-              className="h-full bg-white rounded-full relative group-hover:bg-green-500 transition-colors"
-              style={{ width: `${(currentTime / duration) * 100}%` }}
-            >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-          </div>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            step={0.1}
+            value={Number.isFinite(duration) && duration > 0 ? pendingSeek : 0}
+            onChange={handleSeekChange}
+            onMouseDown={handleSeekStart}
+            onMouseUp={handleSeekEnd}
+            onTouchStart={handleSeekStart}
+            onTouchEnd={handleSeekEnd}
+            className="flex-1 h-1 bg-gray-700 rounded-full appearance-none cursor-pointer
+                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+                     [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
+                     hover:[&::-webkit-slider-thumb]:bg-green-500"
+          />
           <span className="text-xs text-gray-400 w-10">
             {formatTime(duration)}
           </span>

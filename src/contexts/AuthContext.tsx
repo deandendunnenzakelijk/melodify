@@ -43,7 +43,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
 
-    return data;
+    if (data) {
+      return data;
+    }
+
+    const { data: userResponse } = await supabase.auth.getUser();
+    const sessionUser = userResponse.user;
+    const baseName = sessionUser?.email?.split('@')[0]?.replace(/[^a-zA-Z0-9_]/g, '') || 'melodify';
+    const defaultUsername = `${baseName}_${Math.floor(Date.now() / 1000)}`;
+    const defaultDisplayName = sessionUser?.user_metadata?.full_name || sessionUser?.email || 'Nieuwe gebruiker';
+
+    const { data: insertedProfile, error: insertError } = await supabase
+      .from('profiles')
+      .insert({
+        id: userId,
+        username: defaultUsername,
+        display_name: defaultDisplayName,
+        bio: '',
+        avatar_url: '',
+        is_premium: false,
+        is_admin: false,
+        is_artist: false,
+        artist_id: null,
+      })
+      .select()
+      .maybeSingle();
+
+    if (insertError) {
+      console.error('Error creating profile:', insertError);
+      return null;
+    }
+
+    return insertedProfile;
   };
 
   const refreshProfile = async () => {
@@ -76,6 +107,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`profiles-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, (payload) => {
+        setProfile(payload.new as Profile);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const signUp = async (email: string, password: string, username: string, displayName: string) => {
     const { data, error } = await supabase.auth.signUp({

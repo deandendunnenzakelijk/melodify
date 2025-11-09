@@ -12,10 +12,45 @@ import Library from './pages/Library';
 import LikedSongs from './pages/LikedSongs';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import Artist from './pages/Artist';
+import Playlist from './pages/Playlist';
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentView, setCurrentView] = useState('home');
+  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [shouldOpenCreatePlaylist, setShouldOpenCreatePlaylist] = useState(false);
+
+  const handleNavigate = (view: string) => {
+    if (view === 'create-playlist') {
+      setShouldOpenCreatePlaylist(true);
+      setCurrentView('library');
+      return;
+    }
+
+    if (view.startsWith('playlist-')) {
+      const playlistId = view.replace('playlist-', '');
+      setSelectedPlaylistId(playlistId);
+      setCurrentView('playlist');
+      return;
+    }
+
+    if (view !== 'artist') {
+      setSelectedArtistId(null);
+    }
+
+    if (view !== 'playlist') {
+      setSelectedPlaylistId(null);
+    }
+
+    setCurrentView(view);
+  };
+
+  const handleOpenArtist = (artistId: string) => {
+    setSelectedArtistId(artistId);
+    setCurrentView('artist');
+  };
 
   if (loading) {
     return (
@@ -32,32 +67,45 @@ function AppContent() {
   const renderView = () => {
     switch (currentView) {
       case 'home':
-        return <Home />;
+        return <Home onOpenArtist={handleOpenArtist} />;
       case 'search':
-        return <Search />;
+        return <Search onOpenArtist={handleOpenArtist} />;
       case 'library':
-        return <Library />;
+        return (
+          <Library
+            openCreatePlaylist={shouldOpenCreatePlaylist}
+            onCreatePlaylistHandled={() => setShouldOpenCreatePlaylist(false)}
+            onOpenPlaylist={(playlistId) => {
+              setSelectedPlaylistId(playlistId);
+              setCurrentView('playlist');
+            }}
+          />
+        );
       case 'liked':
-        return <LikedSongs />;
+        return <LikedSongs onOpenArtist={handleOpenArtist} />;
       case 'profile':
         return <Profile />;
       case 'admin':
         return <Admin />;
+      case 'artist':
+        return <Artist artistId={selectedArtistId} onOpenArtist={handleOpenArtist} />;
+      case 'playlist':
+        return <Playlist playlistId={selectedPlaylistId} onOpenArtist={handleOpenArtist} />;
       default:
-        return <Home />;
+        return <Home onOpenArtist={handleOpenArtist} />;
     }
   };
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-b from-gray-900 to-black dark:from-black dark:to-gray-950">
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+        <Sidebar currentView={currentView} activePlaylistId={selectedPlaylistId} onNavigate={handleNavigate} />
         <div className="flex-1 overflow-y-auto pb-24">
-          <Header onNavigate={setCurrentView} />
+          <Header onNavigate={handleNavigate} />
           {renderView()}
         </div>
       </div>
-      <Player />
+      <Player onOpenArtist={handleOpenArtist} />
     </div>
   );
 }

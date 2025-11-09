@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 interface SidebarProps {
   currentView: string;
   onNavigate: (view: string) => void;
+  activePlaylistId?: string | null;
 }
 
 interface Playlist {
@@ -14,7 +15,7 @@ interface Playlist {
   cover_url: string;
 }
 
-export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
+export default function Sidebar({ currentView, onNavigate, activePlaylistId }: SidebarProps) {
   const { profile } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
 
@@ -100,7 +101,11 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
             <button
               key={playlist.id}
               onClick={() => onNavigate(`playlist-${playlist.id}`)}
-              className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-400 hover:text-white transition-colors text-left"
+              className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-colors text-left ${
+                activePlaylistId === playlist.id && currentView === 'playlist'
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
             >
               {playlist.cover_url ? (
                 <img src={playlist.cover_url} alt={playlist.name} className="w-10 h-10 rounded" />
