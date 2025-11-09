@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Search as SearchIcon, Play } from 'lucide-react';
+import { Search as SearchIcon, Play, Pause } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { usePlayer } from '../contexts/PlayerContext';
+import { usePlayerControls, useNowPlaying } from '../contexts/PlayerContext';
 
 interface Track {
   id: string;
@@ -24,8 +24,13 @@ interface Artist {
   monthly_listeners: number;
 }
 
-export default function Search() {
-  const { playTrack } = usePlayer();
+interface SearchProps {
+  onOpenArtist?: (artistId: string) => void;
+}
+
+export default function Search({ onOpenArtist }: SearchProps) {
+  const { playTrack, togglePlay } = usePlayerControls();
+  const { currentTrack, isPlaying } = useNowPlaying();
   const [query, setQuery] = useState('');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
@@ -88,9 +93,11 @@ export default function Search() {
               <h2 className="text-2xl font-bold text-white mb-4">Artiesten</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {artists.map((artist) => (
-                  <div
+                  <button
                     key={artist.id}
-                    className="bg-gray-800/40 dark:bg-gray-900/40 p-4 rounded-lg hover:bg-gray-700/60 dark:hover:bg-gray-800/60 transition-all cursor-pointer"
+                    type="button"
+                    onClick={() => onOpenArtist?.(artist.id)}
+                    className="bg-gray-800/40 dark:bg-gray-900/40 p-4 rounded-lg hover:bg-gray-700/60 dark:hover:bg-gray-800/60 transition-all cursor-pointer text-left"
                   >
                     <img
                       src={artist.avatar_url || 'https://images.pexels.com/photos/1699161/pexels-photo-1699161.jpeg?auto=compress&cs=tinysrgb&w=300'}
@@ -101,7 +108,7 @@ export default function Search() {
                       {artist.name}
                     </h3>
                     <p className="text-gray-400 text-sm text-center">Artiest</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -111,11 +118,20 @@ export default function Search() {
             <div>
               <h2 className="text-2xl font-bold text-white mb-4">Nummers</h2>
               <div className="space-y-2">
-                {tracks.map((track) => (
-                  <div
-                    key={track.id}
-                    className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-800/40 dark:hover:bg-gray-900/40 transition-all group cursor-pointer"
-                    onClick={() => playTrack(track, tracks)}
+                {tracks.map((track) => {
+                  const isCurrent = currentTrack?.id === track.id;
+                  const showPause = isCurrent && isPlaying;
+                  return (
+                    <div
+                      key={track.id}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-800/40 dark:hover:bg-gray-900/40 transition-all group cursor-pointer"
+                    onClick={() => {
+                      if (isCurrent) {
+                        togglePlay();
+                      } else {
+                        playTrack(track, tracks);
+                      }
+                    }}
                   >
                     <img
                       src={track.cover_url || 'https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=300'}
@@ -124,21 +140,39 @@ export default function Search() {
                     />
                     <div className="flex-1 min-w-0">
                       <h3 className="text-white font-semibold truncate">{track.title}</h3>
-                      <p className="text-gray-400 text-sm truncate">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (track.artist_id) {
+                            onOpenArtist?.(track.artist_id);
+                          }
+                        }}
+                        className="text-gray-400 text-sm truncate hover:text-white transition-colors"
+                      >
                         {track.artist?.name || 'Unknown Artist'}
-                      </p>
+                      </button>
                     </div>
                     <button
                       className="opacity-0 group-hover:opacity-100 bg-green-500 rounded-full p-2 transition-all"
                       onClick={(e) => {
                         e.stopPropagation();
-                        playTrack(track, tracks);
+                        if (isCurrent) {
+                          togglePlay();
+                        } else {
+                          playTrack(track, tracks);
+                        }
                       }}
                     >
-                      <Play className="w-5 h-5 text-black fill-current" />
+                      {showPause ? (
+                        <Pause className="w-5 h-5 text-black" />
+                      ) : (
+                        <Play className="w-5 h-5 text-black fill-current" />
+                      )}
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
