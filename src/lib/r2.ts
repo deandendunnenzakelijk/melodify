@@ -96,6 +96,10 @@ export async function uploadFileToR2(
     objectKey: baseKey,
   });
 
+  console.log("Signed upload response:", signedUpload);
+  console.log("uploadUrl:", signedUpload.uploadUrl);
+
+
   const uploadUrl = signedUpload.uploadUrl;
   const objectKey = signedUpload.objectKey || signedUpload.key || baseKey;
 
