@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Heart, Play, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,13 +24,11 @@ export default function LikedSongs() {
   const [likedTracks, setLikedTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (profile) {
-      loadLikedSongs();
-    }
-  }, [profile]);
+  interface LikedTrackRow {
+    track: Track;
+  }
 
-  const loadLikedSongs = async () => {
+  const loadLikedSongs = useCallback(async () => {
     if (!profile) return;
 
     const { data } = await supabase
@@ -45,12 +43,18 @@ export default function LikedSongs() {
       .order('created_at', { ascending: false });
 
     if (data) {
-      const tracks = data.map((item: any) => item.track);
+      const tracks = data.map((item: LikedTrackRow) => item.track);
       setLikedTracks(tracks);
     }
 
     setLoading(false);
-  };
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile) {
+      loadLikedSongs();
+    }
+  }, [profile, loadLikedSongs]);
 
   if (loading) {
     return (

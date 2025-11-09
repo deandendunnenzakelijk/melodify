@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search as SearchIcon, Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -31,16 +31,7 @@ export default function Search() {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (query.length > 0) {
-      searchContent();
-    } else {
-      setTracks([]);
-      setArtists([]);
-    }
-  }, [query]);
-
-  const searchContent = async () => {
+  const searchContent = useCallback(async () => {
     setLoading(true);
 
     const { data: tracksData } = await supabase
@@ -62,7 +53,16 @@ export default function Search() {
     if (artistsData) setArtists(artistsData);
 
     setLoading(false);
-  };
+  }, [query]);
+
+  useEffect(() => {
+    if (query.length > 0) {
+      searchContent();
+    } else {
+      setTracks([]);
+      setArtists([]);
+    }
+  }, [query, searchContent]);
 
   return (
     <div className="p-8">

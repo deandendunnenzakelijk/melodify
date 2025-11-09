@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react';
 import { User, Edit2, Upload, Sparkles, Music2, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -83,29 +83,7 @@ export default function Profile() {
   const isArtistModeActive = Boolean(profile?.is_artist || profile?.artist_id || artistProfile);
   const isActivatingArtistMode = !profile?.is_artist && !!artistProfile;
 
-  useEffect(() => {
-    if (profile) {
-      setDisplayName(profile.display_name);
-      setBio(profile.bio);
-      setAvatarUrl(profile.avatar_url);
-      loadStats();
-      if (profile.is_artist || profile.artist_id) {
-        loadArtistData({
-          artistId: profile.artist_id ?? undefined,
-          profileId: profile.id,
-          skipArtistCheck: true,
-        });
-      } else {
-        setArtistProfile(null);
-        setArtistTracks([]);
-        setIsArtistEditing(false);
-        setArtistError(null);
-        setArtistSuccess(null);
-      }
-    }
-  }, [profile]);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     if (!profile) return;
 
     const [likedTracksRes, playlistsRes, followingRes] = await Promise.all([
@@ -119,7 +97,7 @@ export default function Profile() {
       playlists: playlistsRes.count || 0,
       following: followingRes.count || 0,
     });
-  };
+  }, [profile]);
 
   useEffect(() => {
     if (artistProfile && !isArtistEditing) {
@@ -135,7 +113,7 @@ export default function Profile() {
     skipArtistCheck?: boolean;
   }
 
-  const loadArtistData = async (options: LoadArtistDataOptions = {}) => {
+  const loadArtistData = useCallback(async (options: LoadArtistDataOptions = {}) => {
     const activeProfileId = options.profileId ?? profile?.id;
     if (!activeProfileId) return;
 
@@ -195,7 +173,29 @@ export default function Profile() {
     } finally {
       setArtistLoading(false);
     }
-  };
+  }, [profile, refreshProfile]);
+
+  useEffect(() => {
+    if (profile) {
+      setDisplayName(profile.display_name);
+      setBio(profile.bio);
+      setAvatarUrl(profile.avatar_url);
+      loadStats();
+      if (profile.is_artist || profile.artist_id) {
+        loadArtistData({
+          artistId: profile.artist_id ?? undefined,
+          profileId: profile.id,
+          skipArtistCheck: true,
+        });
+      } else {
+        setArtistProfile(null);
+        setArtistTracks([]);
+        setIsArtistEditing(false);
+        setArtistError(null);
+        setArtistSuccess(null);
+      }
+    }
+  }, [profile, loadStats, loadArtistData]);
 
   const startArtistEditing = () => {
     setArtistError(null);

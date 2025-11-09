@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, useEffect } from 'react';
+import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
@@ -11,6 +11,7 @@ interface Track {
   audio_url: string;
   cover_url: string;
   explicit: boolean;
+  play_count: number;
   artist?: {
     name: string;
   };
@@ -56,27 +57,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    const audio = audioRef.current ?? new Audio();
     if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.volume = volume;
-
-      audioRef.current.addEventListener('timeupdate', () => {
-        setCurrentTime(audioRef.current?.currentTime || 0);
-      });
-
-      audioRef.current.addEventListener('loadedmetadata', () => {
-        setDuration(audioRef.current?.duration || 0);
-      });
-
-      audioRef.current.addEventListener('ended', () => {
-        if (repeat === 'one') {
-          audioRef.current?.play();
-        } else {
-          playNext();
-        }
-      });
+      audioRef.current = audio;
     }
-  }, [repeat]);
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime || 0);
+    };
+
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration || 0);
+    };
+
+    const handleEnded = () => {
+      if (repeat === 'one') {
+        audio.play();
+      } else {
+        playNext();
+      }
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [playNext, repeat]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -104,21 +115,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     checkIfLiked();
   }, [currentTrack, user]);
 
-  const addToHistory = async (trackId: string) => {
+  const addToHistory = useCallback(async (track: Track) => {
     if (!user) return;
 
     await supabase.from('listening_history').insert({
       user_id: user.id,
-      track_id: trackId,
+      track_id: track.id,
     });
 
     await supabase
       .from('tracks')
-      .update({ play_count: (currentTrack?.play_count || 0) + 1 })
-      .eq('id', trackId);
-  };
+      .update({ play_count: track.play_count + 1 })
+      .eq('id', track.id);
+  }, [user]);
 
-  const playTrack = (track: Track, playlist?: Track[]) => {
+  const playTrack = useCallback((track: Track, playlist?: Track[]) => {
     setCurrentTrack(track);
     setQueue(playlist || [track]);
     setHistoryIndex(playlist?.findIndex(t => t.id === track.id) || 0);
@@ -127,11 +138,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       audioRef.current.src = track.audio_url;
       audioRef.current.play();
       setIsPlaying(true);
-      addToHistory(track.id);
+      addToHistory(track);
     }
-  };
+  }, [addToHistory]);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (!audioRef.current || !currentTrack) return;
 
     if (isPlaying) {
@@ -140,9 +151,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       audioRef.current.play();
     }
     setIsPlaying(!isPlaying);
-  };
+  }, [currentTrack, isPlaying]);
 
-  const playNext = () => {
+  const playNext = useCallback(() => {
     if (queue.length === 0) return;
 
     let nextIndex = historyIndex + 1;
@@ -158,9 +169,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     setHistoryIndex(nextIndex);
     playTrack(queue[nextIndex], queue);
-  };
+  }, [historyIndex, playTrack, queue, repeat]);
 
-  const playPrevious = () => {
+  const seek = useCallback((time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  }, []);
+
+  const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
 
     if (currentTime > 3) {
@@ -180,28 +198,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     setHistoryIndex(prevIndex);
     playTrack(queue[prevIndex], queue);
-  };
+  }, [currentTime, historyIndex, playTrack, queue, repeat, seek]);
 
-  const seek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const setVolume = (newVolume: number) => {
+  const setVolume = useCallback((newVolume: number) => {
     setVolumeState(newVolume);
-  };
+  }, []);
 
-  const toggleRepeat = () => {
+  const toggleRepeat = useCallback(() => {
     setRepeat(prev => {
       if (prev === 'off') return 'all';
       if (prev === 'all') return 'one';
       return 'off';
     });
-  };
+  }, []);
 
-  const toggleShuffle = () => {
+  const toggleShuffle = useCallback(() => {
     setShuffle(prev => !prev);
     if (!shuffle && queue.length > 0) {
       const shuffled = [...queue].sort(() => Math.random() - 0.5);
@@ -212,11 +223,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setQueue(shuffled);
       setHistoryIndex(0);
     }
-  };
+  }, [currentTrack?.id, queue, shuffle]);
 
-  const addToQueue = (track: Track) => {
+  const addToQueue = useCallback((track: Track) => {
     setQueue(prev => [...prev, track]);
-  };
+  }, []);
 
   const toggleLike = async () => {
     if (!user || !currentTrack) return;
@@ -266,6 +277,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePlayer() {
   const context = useContext(PlayerContext);
   if (context === undefined) {

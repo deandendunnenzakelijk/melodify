@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -27,11 +27,11 @@ export default function Home() {
   const [recommendedTracks, setRecommendedTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [profile]);
+  interface ListeningHistoryItem {
+    track: Track;
+  }
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const { data: trending } = await supabase
       .from('tracks')
       .select(`
@@ -60,9 +60,11 @@ export default function Home() {
 
       if (recent) {
         const uniqueTracks = Array.from(
-          new Map(recent.map((item: any) => [item.track.id, item.track])).values()
+          new Map<Track['id'], Track>(
+            recent.map((item: ListeningHistoryItem) => [item.track.id, item.track])
+          ).values()
         );
-        setRecentTracks(uniqueTracks as Track[]);
+        setRecentTracks(uniqueTracks);
       }
     }
 
@@ -79,7 +81,11 @@ export default function Home() {
     }
 
     setLoading(false);
-  };
+  }, [profile]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const TrackGrid = ({ tracks, title }: { tracks: Track[]; title: string }) => (
     <div className="mb-8">

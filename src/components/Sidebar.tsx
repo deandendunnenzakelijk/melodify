@@ -1,6 +1,6 @@
 import { Home, Search, Library, Plus, Heart, Music2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface SidebarProps {
@@ -18,13 +18,7 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const { profile } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
 
-  useEffect(() => {
-    if (profile) {
-      loadPlaylists();
-    }
-  }, [profile]);
-
-  const loadPlaylists = async () => {
+  const loadPlaylists = useCallback(async () => {
     if (!profile) return;
 
     const { data } = await supabase
@@ -36,7 +30,13 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
     if (data) {
       setPlaylists(data);
     }
-  };
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile) {
+      loadPlaylists();
+    }
+  }, [profile, loadPlaylists]);
 
   const menuItems = [
     { icon: Home, label: 'Home', view: 'home' },
