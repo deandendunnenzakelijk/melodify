@@ -48,6 +48,11 @@ export default function Profile() {
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarFileName, setAvatarFileName] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [stats, setStats] = useState({
     likedTracks: 0,
     playlists: 0,
@@ -75,7 +80,7 @@ export default function Profile() {
   const [trackSuccess, setTrackSuccess] = useState<string | null>(null);
 
   const activeArtistId = profile?.artist_id ?? artistProfile?.id ?? null;
-  const isArtistModeActive = Boolean(profile?.is_artist || artistProfile);
+  const isArtistModeActive = Boolean(profile?.is_artist || profile?.artist_id || artistProfile);
   const isActivatingArtistMode = !profile?.is_artist && !!artistProfile;
 
   useEffect(() => {
@@ -84,8 +89,12 @@ export default function Profile() {
       setBio(profile.bio);
       setAvatarUrl(profile.avatar_url);
       loadStats();
-      if (profile.is_artist) {
-        loadArtistData();
+      if (profile.is_artist || profile.artist_id) {
+        loadArtistData({
+          artistId: profile.artist_id ?? undefined,
+          profileId: profile.id,
+          skipArtistCheck: true,
+        });
       } else {
         setArtistProfile(null);
         setArtistTracks([]);
@@ -151,8 +160,22 @@ export default function Profile() {
       setArtistProfile(artistData);
 
       if (artistData) {
-        if (profile && !profile.artist_id && !options.artistId && artistData.profile_id === profile.id) {
-          await supabase.from('profiles').update({ artist_id: artistData.id }).eq('id', profile.id);
+        if (
+          profile &&
+          artistData.profile_id === profile.id &&
+          (!profile.artist_id || !profile.is_artist) &&
+          !options.artistId
+        ) {
+          const updates: { artist_id?: string; is_artist?: boolean } = {};
+          if (!profile.artist_id) {
+            updates.artist_id = artistData.id;
+          }
+          if (!profile.is_artist) {
+            updates.is_artist = true;
+          }
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('profiles').update(updates).eq('id', profile.id);
+          }
           await refreshProfile();
         }
         const { data: trackData, error: trackError } = await supabase
@@ -196,6 +219,37 @@ export default function Profile() {
     const file = event.target.files?.[0] || null;
     setAudioFile(file);
     setAudioFileName(file ? file.name : '');
+  };
+
+  const handleAvatarFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setAvatarFile(file);
+    setAvatarFileName(file ? file.name : '');
+  };
+
+  const handleUploadAvatar = async () => {
+    if (!profile || !avatarFile) return;
+
+    setAvatarUploading(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
+    try {
+      const upload = await uploadFileToR2(avatarFile, {
+        folder: `profiles/${profile.id}/avatars`,
+      });
+      setAvatarUrl(upload.publicUrl);
+      setProfileMessage('Profielfoto geüpload. Vergeet niet op te slaan.');
+      setAvatarFile(null);
+      setAvatarFileName('');
+    } catch (error) {
+      console.error(error);
+      setProfileError(
+        error instanceof Error ? error.message : 'Het uploaden van de profielfoto is mislukt.'
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleCoverFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -293,12 +347,14 @@ export default function Profile() {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ is_artist: false })
+        .update({ is_artist: false, artist_id: null })
         .eq('id', profile.id);
 
       if (error) throw error;
 
       await refreshProfile();
+      setArtistProfile(null);
+      setArtistTracks([]);
       setArtistSuccess('Artiestmodus is uitgeschakeld.');
     } catch (error) {
       console.error(error);
@@ -371,6 +427,8 @@ export default function Profile() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setProfileError(null);
+    setProfileMessage(null);
 
     const { error } = await supabase
       .from('profiles')
@@ -384,6 +442,9 @@ export default function Profile() {
     if (!error) {
       await refreshProfile();
       setIsEditing(false);
+      setProfileMessage('Profiel bijgewerkt.');
+    } else {
+      setProfileError('Het bijwerken van je profiel is mislukt.');
     }
 
     setLoading(false);
@@ -424,7 +485,14 @@ export default function Profile() {
             </div>
 
             <button
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                setProfileError(null);
+                setProfileMessage(null);
+                setAvatarFile(null);
+                setAvatarFileName('');
+                setAvatarUploading(false);
+                setIsEditing((prev) => !prev);
+              }}
               className="bg-white hover:bg-gray-200 text-black rounded-full px-6 py-2 font-semibold flex items-center gap-2"
             >
               <Edit2 className="w-4 h-4" />
@@ -432,6 +500,17 @@ export default function Profile() {
             </button>
           </div>
         </div>
+
+        {profileError && (
+          <div className="bg-red-500/10 border border-red-500/40 text-red-200 px-4 py-3 rounded-lg mt-4">
+            {profileError}
+          </div>
+        )}
+        {profileMessage && (
+          <div className="bg-green-500/10 border border-green-500/40 text-green-200 px-4 py-3 rounded-lg mt-4">
+            {profileMessage}
+          </div>
+        )}
 
         {isEditing && (
           <div className="bg-gray-800 dark:bg-gray-900 rounded-2xl p-8">
@@ -476,6 +555,31 @@ export default function Profile() {
                 />
               </div>
 
+              <div>
+                <label className="block text-white text-sm font-semibold mb-2">Profielfoto uploaden</label>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <label className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-4 py-3 rounded-lg cursor-pointer transition">
+                    <Upload className="w-4 h-4" />
+                    <span>{avatarFileName || 'Kies een afbeelding'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleUploadAvatar}
+                    disabled={!avatarFile || avatarUploading}
+                    className="sm:w-auto bg-green-500 hover:bg-green-400 disabled:bg-green-500/50 disabled:cursor-not-allowed text-black font-semibold px-4 py-3 rounded-lg transition"
+                  >
+                    {avatarUploading ? 'Uploaden...' : 'Uploaden'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Ondersteunt JPG, PNG en GIF. Maximaal 10 MB.</p>
+              </div>
+
               <div className="flex gap-4">
                 <button
                   type="submit"
@@ -486,7 +590,17 @@ export default function Profile() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setIsEditing(false);
+                    if (profile) {
+                      setDisplayName(profile.display_name);
+                      setBio(profile.bio);
+                      setAvatarUrl(profile.avatar_url);
+                    }
+                    setAvatarFile(null);
+                    setAvatarFileName('');
+                    setAvatarUploading(false);
+                  }}
                   className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-colors"
                 >
                   Annuleren
