@@ -74,6 +74,10 @@ export default function Profile() {
   const [trackError, setTrackError] = useState<string | null>(null);
   const [trackSuccess, setTrackSuccess] = useState<string | null>(null);
 
+  const activeArtistId = profile?.artist_id ?? artistProfile?.id ?? null;
+  const isArtistModeActive = Boolean(profile?.is_artist || artistProfile);
+  const isActivatingArtistMode = !profile?.is_artist && !!artistProfile;
+
   useEffect(() => {
     if (profile) {
       setDisplayName(profile.display_name);
@@ -86,9 +90,9 @@ export default function Profile() {
         setArtistProfile(null);
         setArtistTracks([]);
         setIsArtistEditing(false);
+        setArtistError(null);
+        setArtistSuccess(null);
       }
-      setArtistError(null);
-      setArtistSuccess(null);
     }
   }, [profile]);
 
@@ -116,16 +120,29 @@ export default function Profile() {
     }
   }, [artistProfile, isArtistEditing]);
 
-  const loadArtistData = async () => {
-    if (!profile?.is_artist) return;
+  interface LoadArtistDataOptions {
+    artistId?: string;
+    profileId?: string;
+    skipArtistCheck?: boolean;
+  }
+
+  const loadArtistData = async (options: LoadArtistDataOptions = {}) => {
+    const activeProfileId = options.profileId ?? profile?.id;
+    if (!activeProfileId) return;
+
+    if (!profile?.is_artist && !options.skipArtistCheck && !options.artistId) {
+      return;
+    }
 
     setArtistLoading(true);
     setArtistError(null);
 
     try {
-      const artistQuery = profile.artist_id
-        ? supabase.from('artists').select('*').eq('id', profile.artist_id)
-        : supabase.from('artists').select('*').eq('profile_id', profile.id);
+      const targetArtistId = options.artistId ?? profile?.artist_id ?? null;
+
+      const artistQuery = targetArtistId
+        ? supabase.from('artists').select('*').eq('id', targetArtistId)
+        : supabase.from('artists').select('*').eq('profile_id', activeProfileId);
 
       const { data: artistData, error: artistError } = await artistQuery.maybeSingle();
 
@@ -134,7 +151,7 @@ export default function Profile() {
       setArtistProfile(artistData);
 
       if (artistData) {
-        if (!profile.artist_id) {
+        if (profile && !profile.artist_id && !options.artistId && artistData.profile_id === profile.id) {
           await supabase.from('profiles').update({ artist_id: artistData.id }).eq('id', profile.id);
           await refreshProfile();
         }
@@ -196,6 +213,9 @@ export default function Profile() {
     setArtistSuccess(null);
 
     try {
+      let resolvedArtistId: string | null = profile.artist_id ?? artistProfile?.id ?? null;
+      let shouldSkipArtistCheck = false;
+
       if (profile.artist_id || artistProfile) {
         const artistId = profile.artist_id || artistProfile?.id;
         if (!artistId) throw new Error('Geen artiestprofiel gevonden.');
@@ -212,6 +232,7 @@ export default function Profile() {
 
         if (error) throw error;
         setArtistSuccess('Artistprofiel bijgewerkt.');
+        resolvedArtistId = artistId;
       } else {
         const { data, error } = await supabase
           .from('artists')
@@ -228,6 +249,7 @@ export default function Profile() {
         if (error) throw error;
         if (!data) throw new Error('Kon artiestprofiel niet opslaan.');
 
+        setArtistProfile(data);
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
@@ -238,10 +260,20 @@ export default function Profile() {
 
         if (profileError) throw profileError;
         setArtistSuccess('Artiestmodus is geactiveerd!');
+        resolvedArtistId = data.id;
+        shouldSkipArtistCheck = true;
         await refreshProfile();
       }
 
-      await loadArtistData();
+      if (resolvedArtistId) {
+        await loadArtistData({
+          artistId: resolvedArtistId,
+          profileId: profile.id,
+          skipArtistCheck: shouldSkipArtistCheck,
+        });
+      } else {
+        await loadArtistData({ profileId: profile.id });
+      }
       setIsArtistEditing(false);
     } catch (error) {
       console.error(error);
@@ -279,7 +311,7 @@ export default function Profile() {
   const handleUploadTrack = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!profile?.artist_id) {
+    if (!activeArtistId) {
       setTrackError('Activeer eerst artiestmodus.');
       return;
     }
@@ -296,13 +328,13 @@ export default function Profile() {
     try {
       const duration = Math.round(await getAudioDuration(audioFile));
       const audioUpload = await uploadFileToR2(audioFile, {
-        folder: `artists/${profile.artist_id}/tracks`,
+        folder: `artists/${activeArtistId}/tracks`,
       });
 
       let coverUrl = '';
       if (coverFile) {
         const coverUpload = await uploadFileToR2(coverFile, {
-          folder: `artists/${profile.artist_id}/covers`,
+          folder: `artists/${activeArtistId}/covers`,
         });
         coverUrl = coverUpload.publicUrl;
       }
@@ -311,7 +343,7 @@ export default function Profile() {
         .from('tracks')
         .insert({
           title: trackTitle,
-          artist_id: profile.artist_id,
+          artist_id: activeArtistId,
           duration: duration || 0,
           audio_url: audioUpload.publicUrl,
           cover_url: coverUrl,
@@ -487,6 +519,14 @@ export default function Profile() {
                   {artistModeUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Music2 className="w-4 h-4" />}
                   Uitschakelen
                 </button>
+              ) : isActivatingArtistMode ? (
+                <button
+                  disabled
+                  className="flex items-center gap-2 bg-green-500/20 text-green-200 px-4 py-2 rounded-lg transition"
+                >
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Artiestmodus wordt geactiveerd...
+                </button>
               ) : (
                 <button
                   onClick={startArtistEditing}
@@ -496,7 +536,7 @@ export default function Profile() {
                   Activeer artiestmodus
                 </button>
               )}
-              {profile.is_artist && (
+              {isArtistModeActive && (
                 <button
                   onClick={startArtistEditing}
                   className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition"
@@ -571,7 +611,7 @@ export default function Profile() {
             </form>
           )}
 
-          {profile.is_artist && (
+          {isArtistModeActive && (
             <div className="mt-6 space-y-6">
               {!isArtistEditing && artistProfile && (
                 <div className="flex items-start gap-4">
@@ -708,7 +748,7 @@ export default function Profile() {
             </div>
           )}
 
-          {!profile.is_artist && !isArtistEditing && (
+          {!isArtistModeActive && !isArtistEditing && (
             <p className="mt-4 text-sm text-gray-300">
               Wil je je eigen muziek uitbrengen? Activeer artiestmodus en upload direct vanuit je profiel.
             </p>
